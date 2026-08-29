@@ -1,0 +1,12 @@
+README.md
+pyproject.toml
+src/easy_router.egg-info/PKG-INFO
+src/easy_router.egg-info/SOURCES.txt
+src/easy_router.egg-info/dependency_links.txt
+src/easy_router.egg-info/top_level.txt
+src/inventory/scanner.py
+src/inventory/validator.py
+src/models/capabiliteis.py
+src/models/network_interface.py
+src/models/nic.py
+src/topology/router_top.py
