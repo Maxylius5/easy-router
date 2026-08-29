@@ -1,36 +1,17 @@
-from src.inventory.scanner import Scanner
-from src.models.network import WifiInterface
+from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
-from src.inventory.scanner import Scanner
-
-def main():
-
-    scanner = Scanner()
-
-    interfaces = scanner.discover()
-
-    for interface in interfaces:
-        print(f"\n{interface.name}")
-        print(f"  Type:       {interface.interface_type.value}")
-        print(f"  MAC:        {interface.mac_address}")
-        print(f"  Physical:   {interface.is_physical}")
-        print(f"  State:      {interface.state}")
-        print(f"  Driver:     {interface.driver}")
-
-        if isinstance(interface, WifiInterface):
-            capabilities = interface.capabilities
-
-            print("  Wi-Fi:")
-            print(f"    Client:    {capabilities.client}")
-            print(f"    AP:        {capabilities.access_point}")
-            print(f"    Monitor:   {capabilities.monitor}")
-            print(
-                f"    Standards: "
-                f"{', '.join(capabilities.wifi_standards)}"
-            )
+from src.api.interface import router as interface_router
 
 
-if __name__ == "__main__":
-    main()
+app = FastAPI(
+    title="Easy Router",
+)
 
-    
+app.include_router(interface_router)
+
+app.mount(
+    "/",
+    StaticFiles(directory="web", html=True),
+    name="web",
+)

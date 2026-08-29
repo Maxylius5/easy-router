@@ -1,0 +1,156 @@
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    font-family: system-ui, sans-serif;
+    background: #f5f6f8;
+    color: #1f2937;
+}
+
+header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+
+    padding: 24px 40px;
+
+    background: white;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+h1 {
+    margin: 0;
+    font-size: 28px;
+}
+
+header p {
+    margin: 4px 0 0;
+    color: #6b7280;
+}
+
+.status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+
+    font-size: 14px;
+    color: #4b5563;
+}
+
+.status-dot {
+    width: 9px;
+    height: 9px;
+
+    border-radius: 50%;
+    background: #22c55e;
+}
+
+main {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 40px;
+}
+
+.section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+
+    margin-bottom: 24px;
+}
+
+h2 {
+    margin: 0;
+}
+
+.section-header p {
+    margin-top: 6px;
+    color: #6b7280;
+}
+
+button {
+    border: none;
+    border-radius: 8px;
+
+    padding: 10px 16px;
+
+    background: #111827;
+    color: white;
+
+    cursor: pointer;
+}
+
+button:hover {
+    background: #374151;
+}
+
+.interfaces {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 18px;
+}
+
+.interface-card {
+    padding: 22px;
+
+    background: white;
+
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.04);
+}
+
+.interface-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+
+    margin-bottom: 18px;
+}
+
+.interface-name {
+    font-size: 20px;
+    font-weight: 600;
+}
+
+.interface-type {
+    padding: 4px 9px;
+
+    border-radius: 999px;
+
+    background: #eef2ff;
+
+    font-size: 12px;
+}
+
+.details {
+    display: grid;
+    gap: 10px;
+}
+
+.detail {
+    display: flex;
+    justify-content: space-between;
+
+    font-size: 14px;
+}
+
+.label {
+    color: #6b7280;
+}
+
+.value {
+    font-family: monospace;
+}
+
+.loading {
+    color: #6b7280;
+}
+
+.error {
+    color: #dc2626;
+}
+

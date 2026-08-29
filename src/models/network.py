@@ -9,14 +9,12 @@ class InterfaceType(Enum):
     WIFI = "wifi"
     BRIDGE = "bridge"
     VETH = "veth"
-    TUNNEL = "tunnel"
     OTHER = "other"
 
 
 @dataclass
 class Capabilities:
-    wan: bool = False
-    lan: bool = False
+    pass
 
 
 @dataclass
