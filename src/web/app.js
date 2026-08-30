@@ -1,17 +1,72 @@
-const page = document.getElementById("page");
-const pageTitle = document.getElementById("page-title");
-const pageDescription = document.getElementById("page-description");
+
+// ==================================================
+// Easy Router frontend
+// ==================================================
+//
+// This frontend talks to the existing FastAPI API:
+//
+//     GET /api/interfaces
+//     GET /api/config
+//     PUT /api/config
+//
+// Hostapd configuration is represented by the
+// existing "wifi" section of /api/config.
+//
+// ==================================================
 
 
-// --------------------------------------------------
+// ==================================================
+// GLOBAL STATE
+// ==================================================
+
+let currentConfig = null;
+
+
+// ==================================================
+// DOM
+// ==================================================
+
+const page =
+    document.getElementById("page");
+
+const pageTitle =
+    document.getElementById("page-title");
+
+const pageDescription =
+    document.getElementById("page-description");
+
+const navigationButtons =
+    document.querySelectorAll(".nav-button");
+
+
+// ==================================================
 // API
-// --------------------------------------------------
+// ==================================================
 
-async function getConfig() {
-    const response = await fetch("/api/config");
+async function getInterfaces() {
+
+    const response =
+        await fetch("/api/interfaces");
 
     if (!response.ok) {
-        throw new Error("Failed to load configuration");
+        throw new Error(
+            `Failed to load interfaces (${response.status})`
+        );
+    }
+
+    return response.json();
+}
+
+
+async function getConfig() {
+
+    const response =
+        await fetch("/api/config");
+
+    if (!response.ok) {
+        throw new Error(
+            `Failed to load configuration (${response.status})`
+        );
     }
 
     return response.json();
@@ -19,166 +74,215 @@ async function getConfig() {
 
 
 async function saveConfig(config) {
-    const response = await fetch("/api/config", {
-        method: "PUT",
-        headers: {
-            "Content-Type": "application/json",
-        },
-        body: JSON.stringify(config),
-    });
+
+    const response =
+        await fetch(
+            "/api/config",
+            {
+                method: "PUT",
+
+                headers: {
+                    "Content-Type":
+                        "application/json"
+                },
+
+                body:
+                    JSON.stringify(config)
+            }
+        );
+
 
     if (!response.ok) {
-        let message = "Failed to save configuration.";
+
+        let message =
+            `Failed to save configuration (${response.status})`;
 
         try {
-            const error = await response.json();
-            message = error.detail ?? message;
+
+            const error =
+                await response.json();
+
+            if (error.detail) {
+                message = error.detail;
+            }
+
         } catch {
-            // Ignore JSON parsing errors.
+            // Response wasn't JSON.
         }
 
         throw new Error(message);
     }
 
-    return response.json();
-}
-
-
-async function getInterfaces() {
-    const response = await fetch("/api/interfaces");
-
-    if (!response.ok) {
-        throw new Error("Failed to load network interfaces");
-    }
 
     return response.json();
 }
 
 
-// --------------------------------------------------
-// Page helpers
-// --------------------------------------------------
+// ==================================================
+// PAGE HEADER
+// ==================================================
 
-function setPageHeader(title, description) {
-    pageTitle.textContent = title;
-    pageDescription.textContent = description;
+function setPageHeader(
+    title,
+    description
+) {
+
+    pageTitle.textContent =
+        title;
+
+    pageDescription.textContent =
+        description;
 }
 
 
-function setActiveNavigation(pageName) {
-    document
-        .querySelectorAll(".nav-button")
-        .forEach(button => {
+// ==================================================
+// NAVIGATION
+// ==================================================
+
+function setActiveNavigation(
+    pageName
+) {
+
+    navigationButtons.forEach(
+        button => {
+
             button.classList.toggle(
                 "active",
                 button.dataset.page === pageName
             );
-        });
-}
 
-
-// --------------------------------------------------
-// Dashboard
-// --------------------------------------------------
-
-async function showDashboardPage() {
-    setPageHeader(
-        "Dashboard",
-        "Network management dashboard"
+        }
     );
-
-    page.innerHTML = `
-        <section class="page-section">
-
-            <div class="section-header">
-                <div>
-                    <h2>Welcome to Easy Router</h2>
-
-                    <p>
-                        Manage your router configuration
-                        from one place.
-                    </p>
-                </div>
-            </div>
-
-        </section>
-    `;
 }
 
 
-// --------------------------------------------------
-// Network
-// --------------------------------------------------
+function setupNavigation() {
 
-async function showNetworkPage() {
+    navigationButtons.forEach(
+        button => {
+
+            button.addEventListener(
+                "click",
+                () => {
+
+                    const pageName =
+                        button.dataset.page;
+
+                    setActiveNavigation(
+                        pageName
+                    );
+
+
+                    switch (pageName) {
+
+                        case "available":
+                            showAvailablePage();
+                            break;
+
+                        case "hostapd":
+                            showHostapdPage();
+                            break;
+
+                    }
+
+                }
+            );
+
+        }
+    );
+}
+
+
+// ==================================================
+// AVAILABLE / NETWORK PAGE
+// ==================================================
+
+async function showAvailablePage() {
+
     setPageHeader(
         "Network",
-        "Hardware and interfaces detected on this machine."
+        "Network interfaces available on this machine."
     );
 
+
     page.innerHTML = `
-        <section class="page-section">
+        <section class="card">
 
-            <div class="section-header">
-                <div>
-                    <h2>Network Interfaces</h2>
+            <h2 class="card-title">
+                Available network interfaces
+            </h2>
 
-                    <p>
-                        Hardware and interfaces detected
-                        on this machine.
-                    </p>
-                </div>
+            <p class="card-description">
+                These interfaces were discovered from
+                the Linux system.
+            </p>
 
-                <button id="refresh-button">
-                    Refresh
-                </button>
-            </div>
-
-            <div id="interfaces" class="interfaces">
+            <div id="interfaces">
                 <p class="loading">
-                    Scanning interfaces...
+                    Loading interfaces...
                 </p>
             </div>
 
         </section>
     `;
 
-    const refreshButton =
-        document.getElementById("refresh-button");
 
-    refreshButton.addEventListener(
-        "click",
-        loadInterfaces
-    );
-
-    await loadInterfaces();
-}
-
-
-async function loadInterfaces() {
     const container =
-        document.getElementById("interfaces");
+        document.getElementById(
+            "interfaces"
+        );
 
-    if (!container) {
-        return;
-    }
-
-    container.innerHTML = `
-        <p class="loading">
-            Scanning interfaces...
-        </p>
-    `;
 
     try {
-        const interfaces = await getInterfaces();
 
-        renderInterfaces(interfaces);
+        const interfaces =
+            await getInterfaces();
+
+
+        if (!interfaces.length) {
+
+            container.innerHTML = `
+                <p class="empty">
+                    No network interfaces were found.
+                </p>
+            `;
+
+            return;
+        }
+
+
+        const list =
+            document.createElement(
+                "div"
+            );
+
+        list.className =
+            "interface-list";
+
+
+        for (
+            const iface
+            of interfaces
+        ) {
+
+            list.appendChild(
+                createInterfaceCard(iface)
+            );
+
+        }
+
+
+        container.innerHTML = "";
+
+        container.appendChild(list);
+
 
     } catch (error) {
+
         container.innerHTML = `
-            <p class="error">
+            <div class="error">
                 ${escapeHtml(error.message)}
-            </p>
+            </div>
         `;
 
         console.error(error);
@@ -186,390 +290,260 @@ async function loadInterfaces() {
 }
 
 
-function renderInterfaces(interfaces) {
-    const container =
-        document.getElementById("interfaces");
+// ==================================================
+// INTERFACE CARD
+// ==================================================
 
-    container.innerHTML = "";
+function createInterfaceCard(
+    iface
+) {
 
-    for (const iface of interfaces) {
-        const card = document.createElement("div");
+    const card =
+        document.createElement(
+            "div"
+        );
 
-        card.className = "interface-card";
+    card.className =
+        "interface-card";
 
-        card.innerHTML = `
-            <div class="interface-header">
 
-                <div class="interface-name">
-                    ${escapeHtml(iface.name)}
-                </div>
+    let statusClass =
+        "status-other";
 
-                <div class="interface-type">
-                    ${escapeHtml(iface.interface_type)}
-                </div>
 
-            </div>
-
-            <div class="details">
-
-                <div class="detail">
-                    <span class="label">MAC</span>
-
-                    <span class="value">
-                        ${escapeHtml(iface.mac_address)}
-                    </span>
-                </div>
-
-                <div class="detail">
-                    <span class="label">State</span>
-
-                    <span class="value">
-                        ${escapeHtml(iface.state)}
-                    </span>
-                </div>
-
-                <div class="detail">
-                    <span class="label">Driver</span>
-
-                    <span class="value">
-                        ${escapeHtml(iface.driver ?? "None")}
-                    </span>
-                </div>
-
-                <div class="detail">
-                    <span class="label">Physical</span>
-
-                    <span class="value">
-                        ${iface.is_physical ? "Yes" : "No"}
-                    </span>
-                </div>
-
-            </div>
-        `;
-
-        container.appendChild(card);
+    if (iface.state === "up") {
+        statusClass =
+            "status-up";
     }
+
+    if (iface.state === "down") {
+        statusClass =
+            "status-down";
+    }
+
+
+    card.innerHTML = `
+        <div class="interface-name">
+            ${escapeHtml(iface.name)}
+        </div>
+
+        <div class="interface-row">
+            <span class="interface-label">
+                Type
+            </span>
+
+            <span class="interface-value">
+                ${escapeHtml(
+                    iface.interface_type ?? "unknown"
+                )}
+            </span>
+        </div>
+
+
+        <div class="interface-row">
+            <span class="interface-label">
+                State
+            </span>
+
+            <span class="interface-value">
+                <span class="status ${statusClass}">
+                    ${escapeHtml(
+                        iface.state ?? "unknown"
+                    )}
+                </span>
+            </span>
+        </div>
+
+
+        <div class="interface-row">
+            <span class="interface-label">
+                Physical
+            </span>
+
+            <span class="interface-value">
+                ${iface.is_physical ? "Yes" : "No"}
+            </span>
+        </div>
+
+
+        <div class="interface-row">
+            <span class="interface-label">
+                Driver
+            </span>
+
+            <span class="interface-value">
+                ${escapeHtml(
+                    iface.driver ?? "None"
+                )}
+            </span>
+        </div>
+
+
+        <div class="interface-row">
+            <span class="interface-label">
+                MAC
+            </span>
+
+            <span class="interface-value">
+                ${escapeHtml(
+                    iface.mac_address ?? "Unknown"
+                )}
+            </span>
+        </div>
+    `;
+
+
+    return card;
 }
 
 
-// --------------------------------------------------
-// Wi-Fi
-// --------------------------------------------------
+// ==================================================
+// HOSTAPD PAGE
+// ==================================================
 
-async function showWifiPage() {
+async function showHostapdPage() {
+
     setPageHeader(
-        "Wi-Fi",
+        "Hostapd",
         "Configure the wireless access point."
     );
 
-    page.innerHTML = `
-        <section class="page-section">
-
-            <div id="wifi-loading">
-                <p class="loading">
-                    Loading Wi-Fi configuration...
-                </p>
-            </div>
-
-        </section>
-    `;
-
-    try {
-        const [config, interfaces] = await Promise.all([
-            getConfig(),
-            getInterfaces(),
-        ]);
-
-        renderWifiPage(config, interfaces);
-
-    } catch (error) {
-        page.innerHTML = `
-            <section class="page-section">
-
-                <div class="error-card">
-                    <h2>Unable to load Wi-Fi</h2>
-
-                    <p>
-                        ${escapeHtml(error.message)}
-                    </p>
-
-                </div>
-
-            </section>
-        `;
-
-        console.error(error);
-    }
-}
-
-
-function getWifiInterfaces(interfaces) {
-    return interfaces.filter(
-        iface => iface.interface_type === "wifi"
-    );
-}
-
-
-function renderWifiPage(config, interfaces) {
-    const wifiInterfaces =
-        getWifiInterfaces(interfaces);
-
-    const wifi = config.wifi;
 
     page.innerHTML = `
-        <section class="page-section">
+        <section class="card">
 
-            <div class="section-header">
-                <div>
-                    <h2>Access Point</h2>
+            <h2 class="card-title">
+                Wi-Fi access point
+            </h2>
 
-                    <p>
-                        Configure the wireless access point.
-                    </p>
-                </div>
-
-                <div
-                    class="status-badge ${
-                        wifi.enabled
-                            ? "status-enabled"
-                            : "status-disabled"
-                    }"
-                >
-                    ${
-                        wifi.enabled
-                            ? "Enabled"
-                            : "Disabled"
-                    }
-                </div>
-            </div>
+            <p class="card-description">
+                Configure the interface, SSID,
+                security and wireless channel
+                used by hostapd.
+            </p>
 
 
-            <div class="card">
+            <form id="hostapd-form">
 
-                <div class="form-row toggle-row">
+                <div class="form-grid">
 
-                    <div>
-                        <label
-                            for="wifi-enabled"
-                            class="form-label"
-                        >
-                            Enable access point
+
+                    <!-- Interface -->
+
+                    <div class="form-group">
+
+                        <label for="wifi-interface">
+                            Wi-Fi interface
                         </label>
 
-                        <p class="form-help">
-                            Start using this Wi-Fi interface
-                            as a wireless access point.
-                        </p>
+                        <select
+                            id="wifi-interface"
+                            required
+                        >
+                            <option value="">
+                                Loading interfaces...
+                            </option>
+                        </select>
+
+                        <div class="form-help">
+                            Only Wi-Fi interfaces discovered
+                            by the backend are shown.
+                        </div>
+
                     </div>
 
-                    <label class="switch">
+
+                    <!-- SSID -->
+
+                    <div class="form-group">
+
+                        <label for="wifi-ssid">
+                            SSID
+                        </label>
 
                         <input
-                            type="checkbox"
-                            id="wifi-enabled"
-                            ${
-                                wifi.enabled
-                                    ? "checked"
-                                    : ""
-                            }
+                            id="wifi-ssid"
+                            type="text"
+                            maxlength="32"
+                            required
+                            placeholder="EasyRouter"
                         >
 
-                        <span class="slider"></span>
+                        <div class="form-help">
+                            The name visible to Wi-Fi clients.
+                        </div>
 
-                    </label>
-
-                </div>
-
-
-                <div class="form-row">
-
-                    <label
-                        for="wifi-interface"
-                        class="form-label"
-                    >
-                        Interface
-                    </label>
-
-                    <select
-                        id="wifi-interface"
-                    >
-
-                        ${
-                            wifiInterfaces.length === 0
-                                ? `
-                                    <option value="">
-                                        No Wi-Fi interfaces found
-                                    </option>
-                                  `
-                                : wifiInterfaces
-                                    .map(iface => `
-                                        <option
-                                            value="${escapeHtml(iface.name)}"
-                                            ${
-                                                iface.name === wifi.interface
-                                                    ? "selected"
-                                                    : ""
-                                            }
-                                        >
-                                            ${escapeHtml(iface.name)}
-                                        </option>
-                                    `)
-                                    .join("")
-                        }
-
-                    </select>
-
-                    <p class="form-help">
-                        Select the wireless interface that
-                        hostapd will control.
-                    </p>
-
-                </div>
+                    </div>
 
 
-                <div class="form-row">
+                    <!-- Password -->
 
-                    <label
-                        for="wifi-ssid"
-                        class="form-label"
-                    >
-                        SSID
-                    </label>
+                    <div class="form-group">
 
-                    <input
-                        id="wifi-ssid"
-                        type="text"
-                        maxlength="32"
-                        value="${escapeHtml(wifi.ssid)}"
-                        placeholder="EasyRouter"
-                    >
+                        <label for="wifi-password">
+                            Password
+                        </label>
 
-                    <p class="form-help">
-                        The name visible to Wi-Fi clients.
-                    </p>
-
-                </div>
-
-
-                <div class="form-row">
-
-                    <label
-                        for="wifi-password"
-                        class="form-label"
-                    >
-                        Password
-                    </label>
-
-                    <input
-                        id="wifi-password"
-                        type="password"
-                        minlength="8"
-                        maxlength="63"
-                        value="${escapeHtml(wifi.password)}"
-                        placeholder="Wi-Fi password"
-                    >
-
-                    <p class="form-help">
-                        WPA2 password, 8–63 characters.
-                    </p>
-
-                </div>
-
-
-                <div class="form-row">
-
-                    <label
-                        for="wifi-country"
-                        class="form-label"
-                    >
-                        Country
-                    </label>
-
-                    <select id="wifi-country">
-
-                        <option
-                            value="NL"
-                            ${
-                                wifi.country === "NL"
-                                    ? "selected"
-                                    : ""
-                            }
+                        <input
+                            id="wifi-password"
+                            type="password"
+                            minlength="8"
+                            placeholder="Enter Wi-Fi password"
                         >
-                            Netherlands
-                        </option>
 
-                        <option
-                            value="DE"
-                            ${
-                                wifi.country === "DE"
-                                    ? "selected"
-                                    : ""
-                            }
+                        <div class="form-help">
+                            Leave empty if your backend
+                            intentionally permits an empty password.
+                        </div>
+
+                    </div>
+
+
+                    <!-- Country -->
+
+                    <div class="form-group">
+
+                        <label for="wifi-country">
+                            Country
+                        </label>
+
+                        <input
+                            id="wifi-country"
+                            type="text"
+                            maxlength="2"
+                            required
+                            placeholder="NL"
                         >
-                            Germany
-                        </option>
 
-                        <option
-                            value="BE"
-                            ${
-                                wifi.country === "BE"
-                                    ? "selected"
-                                    : ""
-                            }
+                        <div class="form-help">
+                            Two-letter country code.
+                        </div>
+
+                    </div>
+
+
+                    <!-- Channel -->
+
+                    <div class="form-group">
+
+                        <label for="wifi-channel">
+                            Channel
+                        </label>
+
+                        <input
+                            id="wifi-channel"
+                            type="number"
+                            min="1"
+                            max="196"
+                            required
                         >
-                            Belgium
-                        </option>
 
-                        <option
-                            value="GB"
-                            ${
-                                wifi.country === "GB"
-                                    ? "selected"
-                                    : ""
-                            }
-                        >
-                            United Kingdom
-                        </option>
+                        <div class="form-help">
+                            The channel used by the access point.
+                        </div>
 
-                    </select>
+                    </div>
 
-                </div>
-
-
-                <div class="form-row">
-
-                    <label
-                        for="wifi-channel"
-                        class="form-label"
-                    >
-                        Channel
-                    </label>
-
-                    <select id="wifi-channel">
-
-                        ${
-                            [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
-                                .map(channel => `
-                                    <option
-                                        value="${channel}"
-                                        ${
-                                            channel === wifi.channel
-                                                ? "selected"
-                                                : ""
-                                        }
-                                    >
-                                        ${channel}
-                                    </option>
-                                `)
-                                .join("")
-                        }
-
-                    </select>
-
-                    <p class="form-help">
-                        2.4 GHz channel. We will make this
-                        hardware-aware in the next step.
-                    </p>
 
                 </div>
 
@@ -577,232 +551,514 @@ function renderWifiPage(config, interfaces) {
                 <div class="form-actions">
 
                     <button
-                        id="save-wifi"
-                        class="primary-button"
+                        type="submit"
+                        class="button"
+                        id="save-hostapd"
                     >
-                        Save configuration
+                        Apply configuration
+                    </button>
+
+                    <button
+                        type="button"
+                        class="button button-secondary"
+                        id="reload-hostapd"
+                    >
+                        Reload
                     </button>
 
                 </div>
 
 
                 <div
-                    id="wifi-message"
+                    id="hostapd-message"
                     class="message"
                 ></div>
 
-            </div>
+            </form>
 
         </section>
     `;
 
 
+    try {
+
+        /*
+         * Load both pieces of information:
+         *
+         *   /api/config
+         *   /api/interfaces
+         *
+         * The config tells us what the user currently
+         * has configured.
+         *
+         * The interfaces endpoint tells us what
+         * hardware actually exists.
+         */
+
+        const [
+            config,
+            interfaces
+        ] = await Promise.all([
+            getConfig(),
+            getInterfaces()
+        ]);
+
+
+        currentConfig =
+            config;
+
+
+        populateHostapdForm(
+            config,
+            interfaces
+        );
+
+
+    } catch (error) {
+
+        showMessage(
+            "hostapd-message",
+            error.message,
+            "error"
+        );
+
+        console.error(error);
+    }
+
+
+    /*
+     * Form submission
+     */
+
     document
-        .getElementById("save-wifi")
+        .getElementById("hostapd-form")
+        .addEventListener(
+            "submit",
+            handleHostapdSubmit
+        );
+
+
+    /*
+     * Reload button
+     */
+
+    document
+        .getElementById("reload-hostapd")
         .addEventListener(
             "click",
-            saveWifiConfig
+            () => showHostapdPage()
         );
 }
 
 
-async function saveWifiConfig() {
-    const message =
-        document.getElementById("wifi-message");
+// ==================================================
+// POPULATE HOSTAPD FORM
+// ==================================================
 
-    const button =
-        document.getElementById("save-wifi");
+function populateHostapdForm(
+    config,
+    interfaces
+) {
 
-    button.disabled = true;
+    const wifi =
+        config.wifi ?? {};
 
-    message.className = "message";
-    message.textContent = "Saving...";
 
-    try {
-        const config = await getConfig();
+    const interfaceSelect =
+        document.getElementById(
+            "wifi-interface"
+        );
 
-        config.wifi.enabled =
-            document.getElementById(
-                "wifi-enabled"
-            ).checked;
 
-        config.wifi.interface =
+    /*
+     * Only show actual Wi-Fi interfaces.
+     */
+
+    const wifiInterfaces =
+        interfaces.filter(
+            iface =>
+                iface.interface_type === "wifi"
+        );
+
+
+    interfaceSelect.innerHTML = "";
+
+
+    if (!wifiInterfaces.length) {
+
+        interfaceSelect.innerHTML = `
+            <option value="">
+                No Wi-Fi interfaces found
+            </option>
+        `;
+
+    } else {
+
+        for (
+            const iface
+            of wifiInterfaces
+        ) {
+
+            const option =
+                document.createElement(
+                    "option"
+                );
+
+
+            option.value =
+                iface.name;
+
+
+            option.textContent =
+                `${iface.name} — ${
+                    iface.driver ?? "unknown driver"
+                }`;
+
+
+            if (
+                iface.name ===
+                wifi.interface
+            ) {
+
+                option.selected =
+                    true;
+            }
+
+
+            interfaceSelect.appendChild(
+                option
+            );
+        }
+    }
+
+
+    /*
+     * Existing configuration.
+     */
+
+    document.getElementById(
+        "wifi-ssid"
+    ).value =
+        wifi.ssid ?? "";
+
+
+    document.getElementById(
+        "wifi-country"
+    ).value =
+        wifi.country ?? "";
+
+
+    document.getElementById(
+        "wifi-channel"
+    ).value =
+        wifi.channel ?? 6;
+
+
+    /*
+     * We intentionally do not put the password
+     * into the password input.
+     *
+     * The backend may choose not to return it.
+     */
+
+    document.getElementById(
+        "wifi-password"
+    ).value = "";
+}
+
+
+// ==================================================
+// SAVE HOSTAPD CONFIGURATION
+// ==================================================
+
+async function handleHostapdSubmit(
+    event
+) {
+
+    event.preventDefault();
+
+
+    const saveButton =
+        document.getElementById(
+            "save-hostapd"
+        );
+
+
+    const passwordInput =
+        document.getElementById(
+            "wifi-password"
+        );
+
+
+    /*
+     * Read the form.
+     */
+
+    const wifi = {
+
+        enabled: true,
+
+        interface:
             document.getElementById(
                 "wifi-interface"
-            ).value;
+            ).value,
 
-        config.wifi.ssid =
+        ssid:
             document.getElementById(
                 "wifi-ssid"
-            ).value;
+            ).value.trim(),
 
-        config.wifi.password =
-            document.getElementById(
-                "wifi-password"
-            ).value;
+        password:
+            passwordInput.value,
 
-        config.wifi.country =
+        country:
             document.getElementById(
                 "wifi-country"
-            ).value;
+            ).value.trim().toUpperCase(),
 
-        config.wifi.channel =
+        channel:
             Number(
                 document.getElementById(
                     "wifi-channel"
                 ).value
+            )
+    };
+
+
+    /*
+     * Basic browser-side validation.
+     */
+
+    if (!wifi.interface) {
+
+        showMessage(
+            "hostapd-message",
+            "Please select a Wi-Fi interface.",
+            "error"
+        );
+
+        return;
+    }
+
+
+    if (!wifi.ssid) {
+
+        showMessage(
+            "hostapd-message",
+            "Please enter an SSID.",
+            "error"
+        );
+
+        return;
+    }
+
+
+    if (
+        !wifi.country ||
+        wifi.country.length !== 2
+    ) {
+
+        showMessage(
+            "hostapd-message",
+            "Country must be a two-letter code.",
+            "error"
+        );
+
+        return;
+    }
+
+
+    if (
+        !Number.isInteger(wifi.channel) ||
+        wifi.channel < 1
+    ) {
+
+        showMessage(
+            "hostapd-message",
+            "Please enter a valid channel.",
+            "error"
+        );
+
+        return;
+    }
+
+
+    /*
+     * Disable button while saving.
+     */
+
+    saveButton.disabled =
+        true;
+
+    saveButton.textContent =
+        "Applying...";
+
+
+    showMessage(
+        "hostapd-message",
+        "Sending configuration to the backend...",
+        "info"
+    );
+
+
+    try {
+
+        /*
+         * IMPORTANT:
+         *
+         * We don't send shell commands.
+         *
+         * We send structured configuration
+         * to FastAPI.
+         *
+         * The backend decides what Linux
+         * operations need to happen.
+         */
+
+
+        /*
+         * Preserve the other configuration
+         * sections returned by /api/config.
+         *
+         * For example:
+         *
+         *     wifi
+         *     dhcp
+         *     wireguard
+         *
+         * We only replace "wifi".
+         */
+
+        const newConfig = {
+
+            ...currentConfig,
+
+            wifi: wifi
+        };
+
+
+        const result =
+            await saveConfig(
+                newConfig
             );
 
 
-        await saveConfig(config);
+        /*
+         * Keep our local copy synchronized.
+         */
 
-        message.className =
-            "message success";
+        currentConfig =
+            result.config ??
+            newConfig;
 
-        message.textContent =
-            "Configuration saved successfully.";
+
+        showMessage(
+            "hostapd-message",
+            result.message ??
+                "Configuration applied successfully.",
+            "success"
+        );
+
 
     } catch (error) {
 
-        message.className =
-            "message error";
-
-        message.textContent =
-            error.message;
+        showMessage(
+            "hostapd-message",
+            error.message,
+            "error"
+        );
 
         console.error(error);
 
     } finally {
 
-        button.disabled = false;
+        saveButton.disabled =
+            false;
 
+        saveButton.textContent =
+            "Apply configuration";
     }
 }
 
 
-// --------------------------------------------------
-// Other pages
-// --------------------------------------------------
+// ==================================================
+// MESSAGE
+// ==================================================
 
-async function showPlaceholderPage(
-    title,
-    description
+function showMessage(
+    elementId,
+    text,
+    type
 ) {
-    setPageHeader(title, description);
 
-    page.innerHTML = `
-        <section class="page-section">
+    const element =
+        document.getElementById(
+            elementId
+        );
 
-            <div class="empty-page">
 
-                <h2>${escapeHtml(title)}</h2>
+    if (!element) {
+        return;
+    }
 
-                <p>
-                    This section is not implemented yet.
-                </p>
 
-            </div>
+    element.textContent =
+        text;
 
-        </section>
-    `;
+
+    element.className =
+        `message visible ${type}`;
 }
 
 
-// --------------------------------------------------
-// Navigation
-// --------------------------------------------------
+// ==================================================
+// HTML ESCAPING
+// ==================================================
 
-function setupNavigation() {
-    document
-        .querySelectorAll(".nav-button")
-        .forEach(button => {
+function escapeHtml(
+    value
+) {
 
-            button.addEventListener(
-                "click",
-                async () => {
-
-                    const pageName =
-                        button.dataset.page;
-
-                    setActiveNavigation(pageName);
-
-                    switch (pageName) {
-
-                        case "dashboard":
-                            await showDashboardPage();
-                            break;
-
-                        case "network":
-                            await showNetworkPage();
-                            break;
-
-                        case "wifi":
-                            await showWifiPage();
-                            break;
-
-                        case "dhcp":
-                            await showPlaceholderPage(
-                                "DHCP & DNS",
-                                "Configure DHCP and DNS services."
-                            );
-                            break;
-
-                        case "wireguard":
-                            await showPlaceholderPage(
-                                "WireGuard",
-                                "Configure WireGuard VPN."
-                            );
-                            break;
-
-                        case "firewall":
-                            await showPlaceholderPage(
-                                "Firewall",
-                                "Configure firewall and NAT rules."
-                            );
-                            break;
-
-                        case "system":
-                            await showPlaceholderPage(
-                                "System",
-                                "Manage system services and settings."
-                            );
-                            break;
-                    }
-                }
-            );
-
-        });
-}
+    const div =
+        document.createElement(
+            "div"
+        );
 
 
-// --------------------------------------------------
-// Utilities
-// --------------------------------------------------
+    div.textContent =
+        value ?? "";
 
-function escapeHtml(value) {
-    const div = document.createElement("div");
-
-    div.textContent = value ?? "";
 
     return div.innerHTML;
 }
 
 
-// --------------------------------------------------
-// Startup
-// --------------------------------------------------
+// ==================================================
+// START APPLICATION
+// ==================================================
 
+function init() {
 
-async function init() {
+    /*
+     * Register sidebar buttons.
+     */
+
     setupNavigation();
 
-    const wifiButton = document.querySelector(
-        '[data-page="wifi"]'
+
+    /*
+     * Start on the Network page.
+     *
+     * No .click() tricks.
+     * No dependency on a particular
+     * sidebar element existing.
+     */
+
+    setActiveNavigation(
+        "available"
     );
 
-    if (wifiButton) {
-        wifiButton.click();
-    }
+    showAvailablePage();
 }
 
 

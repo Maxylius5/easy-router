@@ -1,3 +1,7 @@
+
+<!DOCTYPE html>
+<html lang="en">
+
 <head>
     <meta charset="UTF-8">
 
@@ -14,4 +18,139 @@
     >
 </head>
 
+<body>
+
+<div class="app">
+
+    <!-- =========================================
+         SIDEBAR
+         ========================================= -->
+
+    <aside class="sidebar">
+
+        <div class="sidebar-header">
+            <div class="logo">
+                Easy Router
+            </div>
+
+            <div class="subtitle">
+                Network management
+            </div>
+        </div>
+
+
+        <nav class="sidebar-nav">
+
+            <div class="nav-section-title">
+                AVAILABLE
+            </div>
+
+            <button
+                class="nav-button active"
+                data-page="available"
+            >
+                <span class="nav-icon">▦</span>
+                <span>Network</span>
+            </button>
+
+
+            <div class="nav-section-title">
+                SERVICES
+            </div>
+
+            <button
+                class="nav-button"
+                data-page="hostapd"
+            >
+                <span class="nav-icon">◉</span>
+                <span>Hostapd</span>
+            </button>
+
+            <button
+                class="nav-button disabled"
+                data-page="dnsmasq"
+                disabled
+            >
+                <span class="nav-icon">◇</span>
+                <span>Dnsmasq</span>
+            </button>
+
+            <button
+                class="nav-button disabled"
+                data-page="wireguard"
+                disabled
+            >
+                <span class="nav-icon">◈</span>
+                <span>WireGuard</span>
+            </button>
+
+
+            <div class="nav-section-title">
+                NETWORK
+            </div>
+
+            <button
+                class="nav-button disabled"
+                data-page="dhcp"
+                disabled
+            >
+                <span class="nav-icon">↔</span>
+                <span>DHCP</span>
+            </button>
+
+            <button
+                class="nav-button disabled"
+                data-page="dns"
+                disabled
+            >
+                <span class="nav-icon">⌁</span>
+                <span>DNS</span>
+            </button>
+
+        </nav>
+
+
+        <div class="sidebar-footer">
+            Easy Router
+            <span>Linux network manager</span>
+        </div>
+
+    </aside>
+
+
+    <!-- =========================================
+         MAIN AREA
+         ========================================= -->
+
+    <main class="main">
+
+        <header class="topbar">
+
+            <div>
+                <h1 id="page-title">
+                    Network
+                </h1>
+
+                <p id="page-description">
+                    Network interfaces available on this machine.
+                </p>
+            </div>
+
+        </header>
+
+
+        <div
+            id="page"
+            class="page"
+        ></div>
+
+    </main>
+
+</div>
+
+
 <script src="/static/app.js"></script>
+
+</body>
+</html>
+```
