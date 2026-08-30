@@ -1,9 +1,9 @@
-from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from pydantic import BaseModel, Field
 
-@dataclass
-class WifiConfig:
+
+class WifiConfig(BaseModel):
     enabled: bool = False
     interface: str = ""
     ssid: str = ""
@@ -13,8 +13,7 @@ class WifiConfig:
     channel: int = 6
 
 
-@dataclass
-class DhcpConfig:
+class DhcpConfig(BaseModel):
     enabled: bool = False
     interface: str = ""
 
@@ -27,8 +26,7 @@ class DhcpConfig:
     lease_time: str = "12h"
 
 
-@dataclass
-class WireGuardConfig:
+class WireGuardConfig(BaseModel):
     enabled: bool = False
     interface: str = "wg0"
 
@@ -36,25 +34,16 @@ class WireGuardConfig:
     listen_port: int = 51820
 
 
-@dataclass
-class RouterConfig:
-    wifi: WifiConfig = field(default_factory=WifiConfig)
-    dhcp: DhcpConfig = field(default_factory=DhcpConfig)
-    wireguard: WireGuardConfig = field(
+class RouterConfig(BaseModel):
+    wifi: WifiConfig = Field(default_factory=WifiConfig)
+    dhcp: DhcpConfig = Field(default_factory=DhcpConfig)
+    wireguard: WireGuardConfig = Field(
         default_factory=WireGuardConfig
     )
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
-
+        return self.model_dump()
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "RouterConfig":
-        return cls(
-            wifi=WifiConfig(**data.get("wifi", {})),
-            dhcp=DhcpConfig(**data.get("dhcp", {})),
-            wireguard=WireGuardConfig(**data.get("wireguard", {})),
-        )
-
-
+        return cls.model_validate(data)

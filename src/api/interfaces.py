@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException
 
 from src.inventory.scanner import Scanner
 from src.models.network import NetworkInterface
+from src.api.config import router as config_router
 
 
 router = APIRouter(
@@ -10,6 +11,7 @@ router = APIRouter(
 )
 
 scanner = Scanner()
+router.include_router(config_router)
 
 
 @router.get(

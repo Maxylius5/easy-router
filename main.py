@@ -1,7 +1,9 @@
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from src.api.interfaces import router as interfaces_router
+from src.api.config import router as config_router
 
 
 app = FastAPI(
@@ -15,12 +17,20 @@ app.include_router(
     interfaces_router
 )
 
+app.include_router(
+    config_router
+)
+
 
 app.mount(
-    "/",
-    StaticFiles(
-        directory="src/web",
-        html=True,
-    ),
-    name="web",
+    "/static",
+    StaticFiles(directory="src/web"),
+    name="static",
 )
+
+
+@app.get("/")
+def index():
+    return FileResponse(
+        "src/web/index.html"
+    )
