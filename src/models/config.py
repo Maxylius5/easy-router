@@ -125,7 +125,8 @@ class WireGuardConfig(BaseModel):
 
 class RouterConfig(BaseModel):
     wifi: WifiConfig = Field(default_factory=WifiConfig)
-    dhcp: DhcpConfig = Field(default_factory=DhcpConfig)
+    dnsmasq: DnsmasqConfig=Field(default_factory=DnsmasqConfig)
+    #dhcp: DhcpConfig = Field(default_factory=DhcpConfig)
     wireguard: WireGuardConfig = Field(
         default_factory=WireGuardConfig
     )

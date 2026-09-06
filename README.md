@@ -1,589 +1,747 @@
 # Easy Router
 
-> A Python project for discovering, inspecting, and eventually managing network interfaces and router capabilities on Linux.
+Easy Router is a Linux router management application designed to provide a simple web-based control panel for configuring and managing network services.
 
-Easy Router is a learning-focused networking project written in Python.
+The browser is intentionally treated as a **control panel**, not as the owner of any router services. Long-running services such as `hostapd`, `dnsmasq`, and eventually WireGuard are managed by Linux/systemd and continue running independently of the web interface.
 
-The goal is to build a small, modular network management system from the ground up — starting with discovering the network hardware available on a Linux machine and gradually building toward higher-level router and network management functionality.
+The long-term goal is to make configuring a Linux router feel less like manually editing configuration files and more like managing a single, coherent router system.
 
----
+## Project Status
 
-## 🚧 Project Status
+Easy Router is currently in the **early development / architectural phase**.
 
-**Early development**
+The current implementation includes:
 
-The project currently focuses on **network interface discovery and hardware inspection**.
+* FastAPI backend
+* Pydantic-based configuration models
+* Web-based configuration interface
+* Network interface discovery
+* Hostapd configuration management
+* Dnsmasq configuration management
+* Persistent router configuration through `config.json`
+* Native configuration generation for system services
 
-At the moment, Easy Router can:
+The next major stage is moving from configuration management toward **reliable system reconciliation**: making the actual Linux system converge toward the desired state stored by Easy Router.
 
-* Discover network interfaces through `/sys/class/net`
-* Read MAC addresses
-* Determine whether an interface represents physical hardware
-* Identify interface types
-* Read interface state
-* Detect the network driver
-* Inspect Wi-Fi capabilities using Linux `iw`
-* Distinguish between physical and virtual interfaces
-* Extract information about Wi-Fi bands and standards
-
-More functionality will be added incrementally.
+Some of the service-management and recovery functionality described below is therefore part of the planned architecture rather than fully implemented functionality.
 
 ---
 
-## 🎯 Goals
+## Goals
 
-The long-term goal is to turn low-level Linux networking information into clean Python objects that the rest of the application can work with.
+Easy Router is being designed around a few core principles.
 
-Instead of having the rest of the application deal with raw Linux commands such as:
+### 1. The browser is only a control panel
+
+The web application should never own the lifetime of router services.
+
+Closing the browser must not stop:
+
+* `hostapd`
+* `dnsmasq`
+* WireGuard
+* DHCP/DNS services
+* or any other router service
+
+The browser communicates with the FastAPI backend, while Linux/systemd owns the actual services.
+
+### 2. Configuration is represented as structured data
+
+Instead of making the web application manipulate daemon configuration files directly, Easy Router uses Pydantic models to represent the desired router configuration.
+
+For example:
 
 ```text
-iw phy phy0 info
-ip link
-/sys/class/net/...
+Browser
+   ↓
+Pydantic model
+   ↓
+config.json
+   ↓
+service renderer
+   ↓
+native daemon configuration
 ```
 
-the scanner should eventually expose a clean Python representation such as:
+This provides a stable application-level representation of the router configuration while still allowing Easy Router to generate the native configuration formats required by Linux services.
+
+### 3. Easy Router should be able to recover
+
+The system is intended to be resilient to:
+
+* service crashes
+* machine reboots
+* configuration changes
+* accidental manual configuration changes
+* failed configuration applications
+* invalid generated configuration
+
+The goal is that the system can determine what the router **should** look like and bring the machine back into that state.
+
+### 4. Services remain independent of the web application
+
+Easy Router should not launch long-running daemons with Python processes such as:
 
 ```python
-NetworkInterface(
-    name="wlp4s0",
-    type="wifi",
-    mac_address="1c:bf:c0:ce:bf:81",
-    is_physical=True,
-    state="up",
-    driver="rtw89_8852be",
-    capabilities=...
-)
+subprocess.Popen(["dnsmasq", ...])
 ```
 
-This creates a separation between:
+Instead, systemd should manage those processes.
+
+Easy Router acts as a management layer over them.
+
+---
+
+# Architecture
+
+The project is moving toward a desired-state architecture.
 
 ```text
-Linux / sysfs / iw
-        │
-        ▼
-     Scanner
-        │
-        ▼
-   Python models
-        │
-        ▼
- Application logic
+                         Browser
+                            │
+                            │ HTTP
+                            ▼
+                    ┌─────────────────┐
+                    │     FastAPI     │
+                    │   Control API   │
+                    └────────┬────────┘
+                             │
+                             ▼
+                    ┌─────────────────┐
+                    │ ConfigManager   │
+                    │                 │
+                    │  config.json   │
+                    └────────┬────────┘
+                             │
+                       Desired State
+                             │
+                             ▼
+                    ┌─────────────────┐
+                    │   Reconciler    │
+                    └────────┬────────┘
+                             │
+              ┌──────────────┼──────────────┐
+              ▼              ▼              ▼
+        DnsmasqService  HostapdService  WireGuardService
+              │              │              │
+              ▼              ▼              ▼
+       dnsmasq.conf     hostapd.conf    WireGuard config
+              │              │              │
+              └──────────────┼──────────────┘
+                             ▼
+                          systemd
+                             │
+                             ▼
+                        Linux system
 ```
 
+The important distinction is between **desired state** and **actual state**.
+
+## Desired State
+
+The desired state is represented by Easy Router's configuration models and persisted to `config.json`.
+
+For example:
+
+```json
+{
+    "version": 1,
+    "hostapd": {
+        "interface": "wlp4s0",
+        "ssid": "EasyRouter",
+        "country": "NL",
+        "channel": 6
+    },
+    "dnsmasq": {
+        "interface": "br0",
+        "cache_size": 10000
+    }
+}
+```
+
+This represents what the router is intended to be.
+
+## Actual State
+
+The actual state is the state of the Linux machine:
+
+* generated daemon configuration files
+* running systemd services
+* network interfaces
+* bridges
+* addresses
+* routes
+* eventually WireGuard interfaces and peers
+* eventually firewall/NAT state
+
+Easy Router should be able to inspect this state.
+
+## Reconciliation
+
+The long-term mechanism for keeping these states synchronized is reconciliation.
+
+Conceptually:
+
+```text
+                 Desired State
+                  config.json
+                       │
+                       ▼
+                ┌─────────────┐
+                │ Reconciler  │
+                └──────┬──────┘
+                       │
+                  compare state
+                       │
+             ┌─────────┴─────────┐
+             │                   │
+          matches            differs
+             │                   │
+             ▼                   ▼
+         do nothing          apply change
+```
+
+This makes the system **idempotent**.
+
+Running reconciliation when the machine is already correct should result in no unnecessary changes.
+
 ---
 
-## 🏗️ Architecture
+# Configuration Management
 
-The project is structured around a few important concepts.
-
-### Scanner
-
-The `Scanner` is responsible for communicating with the Linux system and discovering available networking hardware.
-
-It should handle things such as:
-
-* `/sys/class/net`
-* Linux network interface information
-* `iw`
-* `ip`
-* Hardware capabilities
-* Wi-Fi information
-
-The scanner converts this low-level information into Python objects.
-
----
-
-### Models
-
-Models represent the things Easy Router knows about.
+Easy Router separates application configuration from daemon configuration.
 
 For example:
 
 ```text
-NetworkInterface
-    │
-    ├── name
-    ├── mac_address
-    ├── type
-    ├── state
-    ├── driver
-    ├── is_physical
-    │
-    └── capabilities
-            │
-            ├── wifi
-            ├── ethernet
-            └── ...
+DnsmasqConfig
+      │
+      ▼
+DnsmasqService.generate_config()
+      │
+      ▼
+dnsmasq configuration
 ```
 
-The important idea is that the models should describe **what something is**, while the scanner describes **how to find out what it is**.
+The `DnsmasqService` is responsible for translating the structured Pydantic model into valid dnsmasq configuration syntax.
+
+The same pattern is intended for other services:
+
+```text
+HostapdConfig
+      ↓
+HostapdService
+      ↓
+hostapd configuration
+```
+
+```text
+WireGuardConfig
+      ↓
+WireGuardService
+      ↓
+WireGuard configuration
+```
+
+This keeps daemon-specific syntax out of the API and frontend.
 
 ---
 
-## 🌐 Network Interfaces
+# Service Management
 
-Linux exposes network interfaces through:
+Long-running services are intended to be managed by systemd.
 
-```text
-/sys/class/net/
-```
-
-For example, a machine might contain:
-
-```text
-wlp4s0
-eno1
-lo
-docker0
-virbr0
-veth...
-br-...
-```
-
-Not every interface represents physical hardware.
-
-Easy Router therefore distinguishes between physical and virtual interfaces.
-
-### Physical interfaces
-
-Examples:
-
-```text
-wlp4s0
-eno1
-```
-
-These represent actual networking hardware.
-
-### Virtual interfaces
-
-Examples:
-
-```text
-docker0
-virbr0
-veth...
-br-...
-lo
-```
-
-These are created by the operating system or other software.
-
-They can still be useful, but they are generally not the hardware that Easy Router is primarily interested in.
-
----
-
-## 📡 Wi-Fi
-
-Wi-Fi interfaces receive additional information from Linux's `iw` utility.
-
-For example:
-
-```bash
-iw dev wlp4s0 info
-```
-
-can provide information such as:
-
-```text
-SSID
-channel
-frequency
-channel width
-transmit power
-interface mode
-wiphy
-```
-
-Hardware capabilities can be inspected with:
-
-```bash
-iw phy phy0 info
-```
-
-This provides much more detailed information, including:
-
-* Supported bands
-* 2.4 GHz support
-* 5 GHz support
-* HT / 802.11n
-* VHT / 802.11ac
-* HE / 802.11ax
-* Supported channel widths
-* MIMO streams
-* Supported MCS rates
-* Supported interface modes
-* Supported ciphers
-* Transmit power
-* Supported frequencies
-* Driver capabilities
-
-The scanner will progressively convert this information into structured Python models.
-
----
-
-## 📶 Wi-Fi Capability Model
-
-Rather than storing the output of `iw` as a giant string, Easy Router aims to represent capabilities using Python objects.
+Easy Router should communicate with systemd through a small service-management abstraction rather than scattering `systemctl` calls throughout the application.
 
 Conceptually:
 
 ```python
-WifiCapabilities(
-    wifi_4=True,
-    wifi_5=True,
-    wifi_6=True,
+class SystemdService:
+    def start(...):
+        ...
 
-    band_2_4ghz=True,
-    band_5ghz=True,
+    def stop(...):
+        ...
 
-    max_channel_width=80,
-    max_rx_rate=867,
-    max_tx_rate=867,
+    def restart(...):
+        ...
 
-    mimo_streams=2,
-)
+    def is_active(...):
+        ...
 ```
 
-This makes it possible for application code to ask meaningful questions:
+A service such as dnsmasq can then use this abstraction:
 
-```python
-if interface.capabilities.wifi_6:
-    ...
+```text
+DnsmasqService
+ ├── generate_config()
+ ├── validate_config()
+ ├── write_config()
+ ├── apply()
+ └── reconcile()
 ```
 
-instead of parsing command output everywhere.
+The web API does not need to know how dnsmasq works internally.
 
 ---
 
-## 🔌 Ethernet
+# Safe Configuration Application
 
-Ethernet interfaces will eventually receive their own capability model.
+Applying a new configuration should eventually be treated as a transactional operation.
+
+The intended flow is:
+
+```text
+New configuration
+       │
+       ▼
+Pydantic validation
+       │
+       ▼
+Generate native configuration
+       │
+       ▼
+Validate generated configuration
+       │
+       ▼
+Save previous configuration
+       │
+       ▼
+Install new configuration
+       │
+       ▼
+Restart service
+       │
+       ▼
+Verify service
+       │
+   ┌───┴───┐
+   │       │
+Success   Failure
+   │       │
+   ▼       ▼
+ Commit   Rollback
+           │
+           ▼
+        Restart
+```
+
+A failed configuration should not leave the router in a broken state if the previous known-good configuration can be restored.
+
+This is particularly important for services such as DNS, DHCP, and Wi-Fi, where a bad configuration can make the router difficult to access remotely.
+
+---
+
+# Configuration Drift
+
+One of the reasons for having a desired-state model is to detect configuration drift.
+
+For example, if Easy Router expects:
+
+```text
+cache-size=10000
+```
+
+but the actual configuration has:
+
+```text
+cache-size=5000
+```
+
+the system can detect that the machine no longer matches the desired state.
+
+Likewise, if someone manually stops dnsmasq:
+
+```text
+Desired:
+    dnsmasq = running
+
+Actual:
+    dnsmasq = stopped
+```
+
+the reconciler can detect the difference and restore the service.
+
+This allows Easy Router to move beyond being a configuration editor and become a **router state manager**.
+
+---
+
+# Automatic Recovery
+
+The intended system should be able to recover from several classes of failure.
+
+### Service crash
+
+```text
+dnsmasq crashes
+      ↓
+systemd restarts dnsmasq
+```
+
+Systemd should handle normal process supervision.
+
+### Configuration drift
+
+```text
+actual configuration
+        ≠
+desired configuration
+        ↓
+Easy Router reconciliation
+        ↓
+restore desired configuration
+```
+
+### Machine reboot
+
+```text
+Machine boots
+      ↓
+systemd starts required services
+      ↓
+Easy Router starts
+      ↓
+Easy Router loads config.json
+      ↓
+reconciliation
+      ↓
+system reaches desired state
+```
+
+The exact boot ordering and dependencies will be defined as the systemd integration matures.
+
+---
+
+# Current Project Structure
+
+The project is currently organized roughly as follows:
+
+```text
+src/
+├── api/
+│   ├── config.py
+│   ├── hostapd.py
+│   ├── dnsmasq.py
+│   └── interfaces.py
+│
+├── services/
+│   ├── hostapd.py
+│   ├── dnsmasq.py
+│   └── systemd.py
+│
+├── config/
+│   ├── manager.py
+│   ├── hostapd.py
+│   └── dnsmasq.py
+│
+├── models/
+│   └── config.py
+│
+└── web/
+    ├── index.html
+    ├── app.js
+    └── style.css
+```
+
+The exact structure may evolve as the reconciliation and service-management layers become more developed.
+
+---
+
+# Current Components
+
+## FastAPI
+
+FastAPI provides the HTTP API used by the web interface.
+
+Current API areas include:
+
+```text
+/api/interfaces
+/api/config
+/api/hostapd
+/api/dnsmasq
+```
+
+These APIs are expected to become service-oriented rather than exposing the implementation details of individual daemon configuration files.
+
+---
+
+## Pydantic Configuration Models
+
+Pydantic models define the application's representation of router configuration.
+
+Examples include:
+
+* `RouterConfig`
+* `HostapdConfig`
+* `DnsmasqConfig`
+
+These models provide validation before configuration reaches the underlying Linux services.
+
+---
+
+## ConfigManager
+
+`ConfigManager` is responsible for persistence of the desired router configuration.
+
+Its role is intentionally different from the service layer.
+
+```text
+ConfigManager
+    │
+    └── manages desired state
+
+DnsmasqService
+    │
+    └── manages dnsmasq
+
+HostapdService
+    │
+    └── manages hostapd
+```
+
+The configuration file is not intended to be a replacement for the daemon's native configuration files.
+
+It is Easy Router's source of truth.
+
+---
+
+## DnsmasqService
+
+The dnsmasq service currently contains a configuration renderer that converts `DnsmasqConfig` into native dnsmasq syntax.
+
+It currently handles configuration areas such as:
+
+* network interfaces
+* DNS upstream servers
+* DNS caching
+* DNS rebinding protection
+* local DNS domains
+* blocklists
+* query logging
+* DHCP
+* DHCPv6
+* IPv6 router advertisements
+
+The next stage is to add reliable application, verification, rollback, and reconciliation.
+
+---
+
+## HostapdService
+
+Hostapd is intended to provide wireless access-point functionality.
+
+The service layer will be responsible for:
+
+* generating hostapd configuration
+* validating configuration
+* applying configuration
+* managing the systemd service
+* detecting configuration drift
+* recovering from service failures
+
+---
+
+# Roadmap
+
+The project is intentionally being developed incrementally.
+
+## Phase 1 — Configuration and API
+
+* [x] FastAPI application
+* [x] Web control panel
+* [x] Network interface discovery
+* [x] Pydantic configuration models
+* [x] Persistent configuration
+* [x] Hostapd API
+* [x] Dnsmasq API
+* [x] Dnsmasq configuration generation
+* [ ] Complete hostapd configuration generation
+
+## Phase 2 — Real Service Management
+
+* [ ] Write generated dnsmasq configuration to the system
+* [ ] Validate generated dnsmasq configuration
+* [ ] Write generated hostapd configuration
+* [ ] Validate generated hostapd configuration
+* [ ] Introduce systemd service abstraction
+* [ ] Start/stop/restart services through systemd
+* [ ] Verify service state after applying configuration
+
+## Phase 3 — Reconciliation
+
+* [ ] Implement service state inspection
+* [ ] Compare desired and actual configuration
+* [ ] Implement `reconcile()`
+* [ ] Detect configuration drift
+* [ ] Automatically restore desired configuration
+* [ ] Periodic reconciliation
+* [ ] Service health/status API
+
+## Phase 4 — Failure Resistance
+
+* [ ] Atomic configuration writes
+* [ ] Configuration backups
+* [ ] Transactional configuration application
+* [ ] Automatic rollback
+* [ ] Verify service health after changes
+* [ ] Handle failed service restarts
+* [ ] Make Easy Router itself a systemd service
+* [ ] Define correct boot ordering
+
+## Phase 5 — Router Functionality
+
+Planned router functionality includes:
+
+* [ ] DHCP
+* [ ] DNS
+* [ ] Wi-Fi access point management
+* [ ] Network bridge management
+* [ ] IPv4 routing
+* [ ] IPv6 routing
+* [ ] NAT
+* [ ] Firewall configuration
+* [ ] WireGuard
+* [ ] VPN routing
+* [ ] DNS blocklists
+* [ ] Client/device information
+* [ ] Network/service status
+
+## Phase 6 — Production Hardening
+
+* [ ] Run the FastAPI application as a dedicated system user
+* [ ] Remove the need to run the application as root
+* [ ] Restrict privileged operations
+* [ ] Use narrowly scoped privilege escalation where required
+* [ ] Improve authentication and authorization
+* [ ] Secure the web interface
+* [ ] Add structured logging
+* [ ] Add comprehensive service tests
+* [ ] Add integration tests against real Linux services
+
+---
+
+# Design Principles
+
+### Desired state over imperative commands
+
+The preferred model is:
+
+```text
+"Make the router look like this."
+```
+
+rather than:
+
+```text
+"Run these commands."
+```
+
+This makes recovery and automation significantly easier.
+
+### Idempotency
+
+Applying the same desired configuration multiple times should be safe.
+
+```text
+apply(config)
+apply(config)
+apply(config)
+```
+
+should leave the system in the same state as a single successful application.
+
+### Native Linux services
+
+Easy Router should work with the Linux networking stack rather than replacing it with a collection of custom daemons.
+
+Services such as systemd, hostapd, dnsmasq, WireGuard, and the Linux networking stack remain responsible for the low-level work.
+
+### Separation of concerns
+
+The project separates:
+
+```text
+Frontend
+    ↓
+API
+    ↓
+Configuration models
+    ↓
+Reconciliation
+    ↓
+Service implementations
+    ↓
+systemd / Linux
+```
+
+Each layer should have a clearly defined responsibility.
+
+### Recoverability
+
+A configuration change should be considered successful only when the resulting system is known to be healthy.
+
+---
+
+# Development
+
+During development, the application can be run with Uvicorn.
 
 For example:
 
-```python
-EthernetCapabilities(
-    speed=1000,
-    full_duplex=True,
-    auto_negotiation=True,
-)
+```bash
+uv run uvicorn main:app --reload
 ```
 
-The exact model will evolve as the project discovers which information is actually useful.
+The development server should not be confused with the eventual production deployment.
+
+In the production router, Easy Router itself is intended to run as a systemd-managed service, without the development `--reload` option.
 
 ---
 
-## 🧩 Planned Models
+# Long-Term Vision
 
-The project will likely grow toward models such as:
+Easy Router is intended to become more than a web interface for editing `hostapd.conf` and `dnsmasq.conf`.
 
-```text
-NetworkInterface
-│
-├── WifiCapabilities
-│
-├── EthernetCapabilities
-│
-└── ...
-```
+The long-term vision is a **desired-state Linux router manager**.
 
-Additional models may eventually represent:
+A user should be able to configure the router through the web interface:
 
 ```text
-Network
-Router
-AccessPoint
-Connection
-IPAddress
-Route
+Wi-Fi
 DNS
 DHCP
+IPv4
+IPv6
 Firewall
+NAT
+VPN
+WireGuard
 ```
 
-These will only be introduced when they become useful.
+without needing to manually edit multiple daemon configuration files.
 
-The goal is to avoid creating large amounts of abstraction before the underlying requirements are understood.
+Easy Router then translates that high-level configuration into the appropriate native Linux configuration and continuously ensures that the machine matches the desired state.
 
----
-
-## 🔍 Discovery Process
-
-The current discovery process starts with Linux's network interface filesystem:
+The fundamental model is:
 
 ```text
-/sys/class/net/
+                    ┌──────────────────┐
+                    │   Desired State  │
+                    │                  │
+                    │    config.json   │
+                    └────────┬─────────┘
+                             │
+                             ▼
+                       Reconciliation
+                             │
+                             ▼
+                    ┌──────────────────┐
+                    │   Actual Linux   │
+                    │      State       │
+                    └──────────────────┘
 ```
 
-For every interface, Easy Router reads information such as:
+If the two states differ, Easy Router brings the actual system back toward the desired state.
 
-```text
-name
-MAC address
-physical / virtual
-state
-driver
-type
-```
-
-A simplified flow looks like:
-
-```text
-/sys/class/net/
-        │
-        ├── wlp4s0
-        ├── eno1
-        ├── docker0
-        ├── lo
-        └── ...
-                │
-                ▼
-             Scanner
-                │
-                ▼
-       NetworkInterface objects
-```
-
-For Wi-Fi interfaces, the scanner can then continue deeper:
-
-```text
-NetworkInterface
-        │
-        └── Wi-Fi
-              │
-              ├── iw dev
-              │
-              └── iw phy
-                     │
-                     ▼
-              WifiCapabilities
-```
-
----
-
-## 🐧 Linux
-
-Easy Router currently targets **Linux**.
-
-This is intentional.
-
-The project relies on Linux networking interfaces and utilities such as:
-
-```text
-/sys/class/net
-iw
-ip
-```
-
-These provide detailed information about the networking hardware and its capabilities.
-
-Support for other operating systems may be considered in the future, but it is not currently a goal.
-
----
-
-## 📁 Project Structure
-
-The project is gradually being organized into separate responsibilities.
-
-A possible structure is:
-
-```text
-easy-router/
-│
-├── main.py
-│
-├── models/
-│   ├── __init__.py
-│   └── network.py
-│
-├── scanner/
-│   ├── __init__.py
-│   └── scanner.py
-│
-├── tests/
-│
-├── pyproject.toml
-├── uv.lock
-└── README.md
-```
-
-The structure may change as the project grows.
-
-The important principle is:
-
-```text
-models/
-    What things are
-
-scanner/
-    How things are discovered
-
-main.py
-    How the application is run
-```
-
----
-
-## ▶️ Running
-
-The project uses Python and `uv`.
-
-Run the application with:
-
-```bash
-uv run main.py
-```
-
-Example output:
-
-```text
-wlp4s0
-  Type:       wifi
-  MAC:        1c:bf:c0:ce:bf:81
-  Physical:   True
-  State:      up
-  Driver:     rtw89_8852be
-
-eno1
-  Type:       ethernet
-  MAC:        bc:fc:e7:00:6a:71
-  Physical:   True
-  State:      down
-  Driver:     r8169
-```
-
-Virtual interfaces may also be discovered:
-
-```text
-docker0
-  Type:       bridge
-  Physical:   False
-  State:      up
-  Driver:     None
-```
-
-These are retained by the scanner because they are still valid Linux network interfaces, even though they are not physical networking hardware.
-
----
-
-## 🧠 Design Philosophy
-
-Easy Router is being built incrementally.
-
-Instead of attempting to implement an entire router management system immediately, the project starts at the lowest useful level:
-
-```text
-Discover hardware
-       ↓
-Understand hardware
-       ↓
-Model hardware
-       ↓
-Discover networks
-       ↓
-Model networks
-       ↓
-Interact with networking
-       ↓
-Build higher-level functionality
-```
-
-Each layer should provide clean information to the layer above it.
-
-The scanner should not become the entire application.
-
-Likewise, the models should not contain Linux-specific command execution.
-
----
-
-## 🛠️ Development
-
-The project is primarily an exploration of:
-
-* Python
-* Object-oriented design
-* Linux networking
-* Network interfaces
-* Wi-Fi standards
-* `sysfs`
-* `iw`
-* `iproute2`
-* Hardware capability detection
-* Data modeling
-* Separation of concerns
-
-The project intentionally favors understandable code over premature abstraction.
-
----
-
-## 🗺️ Roadmap
-
-### Phase 1 — Interface Discovery
-
-* [x] Discover network interfaces
-* [x] Read MAC addresses
-* [x] Detect physical interfaces
-* [x] Detect interface state
-* [x] Detect drivers
-* [x] Detect interface types
-
-### Phase 2 — Hardware Capabilities
-
-* [x] Detect Wi-Fi interfaces
-* [x] Read Wi-Fi hardware information
-* [ ] Parse Wi-Fi bands
-* [ ] Detect Wi-Fi 4 / 5 / 6
-* [ ] Detect channel widths
-* [ ] Detect MIMO capabilities
-* [ ] Detect maximum supported rates
-* [ ] Create structured capability models
-* [ ] Add Ethernet capabilities
-
-### Phase 3 — Network Discovery
-
-* [ ] Discover IP addresses
-* [ ] Discover IPv4 networks
-* [ ] Discover IPv6 networks
-* [ ] Discover gateways
-* [ ] Discover routes
-* [ ] Discover DNS configuration
-* [ ] Detect active connections
-
-### Phase 4 — Wi-Fi Discovery
-
-* [ ] Scan for nearby Wi-Fi networks
-* [ ] Parse SSIDs
-* [ ] Parse BSSIDs
-* [ ] Parse signal strength
-* [ ] Parse channels
-* [ ] Detect security types
-* [ ] Detect Wi-Fi standards
-
-### Phase 5 — Router Functionality
-
-* [ ] Represent networks
-* [ ] Manage interfaces
-* [ ] Configure connections
-* [ ] Router configuration
-* [ ] DHCP
-* [ ] DNS
-* [ ] Firewall
-* [ ] NAT
-
----
-
-## ⚠️ Current Limitations
-
-Easy Router is currently an experimental project.
-
-The scanner relies on Linux-specific functionality and command output, so behavior may differ between distributions, kernel versions, drivers, and hardware.
-
-In particular, Wi-Fi capability detection is intentionally being built around the information exposed by the Linux wireless stack rather than assuming that a particular hardware model always behaves the same way.
-
----
-
-## 📜 License
-
-License information will be added as the project develops.
+That architecture is intended to make the router **persistent, recoverable, observable, and manageable without tying its operation to the browser or any single user session**.

@@ -12,6 +12,7 @@ class DnsmasqError(Exception):
 
 
 class DnsmasqService(Service[DnsmasqConfig]):
+    CONFIG_PATH = Path("/etc/dnsmasq.d/easy-router.conf")
     """Manage dnsmasq configuration."""
 
     def generate_config(self, config: DnsmasqConfig) -> str:
@@ -446,6 +447,21 @@ class DnsmasqService(Service[DnsmasqConfig]):
         finally:
             if config_path is not None:
                 config_path.unlink(missing_ok=True)
+
+    def write_config(self, config: DnsmasqConfig) -> None:
+        config_text = self.generate_config(config)
+
+        self.CONFIG_PATH.parent.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        self.CONFIG_PATH.write_text(
+            config_text,
+            encoding="utf-8",
+        )
+
+
 
     def apply(self, config: DnsmasqConfig) -> None:
         """

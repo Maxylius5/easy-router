@@ -2,6 +2,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from config.hostapd import HostapdConfig
 from models.config import WifiConfig
 from services.base import Service
 
@@ -11,6 +12,7 @@ class HostapdError(Exception):
 
 
 class HostapdService(Service[WifiConfig]):
+    CONFIG_PATH = Path("/etc/hostapd/easy-router.conf")
     """Manage hostapd configuration."""
 
     def generate_config(self, config: WifiConfig) -> str:
@@ -122,6 +124,19 @@ class HostapdService(Service[WifiConfig]):
 
         finally:
             config_path.unlink(missing_ok=True)
+
+    def write_config(self, config: WifiConfig) -> None:
+        config_text = self.generate_config(config)
+
+        self.CONFIG_PATH.parent.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        self.CONFIG_PATH.write_text(
+            config_text,
+            encoding="utf-8",
+        )
 
     def apply(self, config: WifiConfig) -> None:
         raise NotImplementedError(
