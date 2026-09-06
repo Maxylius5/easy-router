@@ -4,6 +4,8 @@ from fastapi.staticfiles import StaticFiles
 
 from src.api.interfaces import router as interfaces_router
 from src.api.config import router as config_router
+from src.api.hostapd import router as hostapd_router
+from src.api.dnsmasq import router as dnsmasq_router
 
 
 app = FastAPI(
@@ -19,6 +21,15 @@ app.include_router(
 
 app.include_router(
     config_router
+)
+
+app.include_router(
+    hostapd_router
+)
+
+
+app.include_router(
+    dnsmasq_router
 )
 
 

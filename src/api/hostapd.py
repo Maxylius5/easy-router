@@ -1,9 +1,9 @@
-
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from services.hostapd import HostapdService
-from models.config import WifiConfig
+from src.config.manager import ConfigManager
+from src.models.config import WifiConfig
+from src.services.hostapd import HostapdService
 
 
 router = APIRouter(
@@ -12,6 +12,7 @@ router = APIRouter(
 )
 
 
+config_manager = ConfigManager()
 hostapd = HostapdService()
 
 
@@ -19,46 +20,40 @@ class HostapdResponse(BaseModel):
     message: str
 
 
-@router.get("")
-def get_hostapd_config():
-    """
-    Return the configuration currently used
-    by Easy Router.
-    """
+@router.get(
+    "",
+    response_model=WifiConfig,
+)
+def get_hostapd_config() -> WifiConfig:
+    """Return the current Hostapd configuration."""
 
-    # For the first example, return a simple
-    # configuration object.
+    config = config_manager.load()
 
-    config = WifiConfig(
-        interface="wlp4s0",
-        ssid="EasyRouter",
-        password="",
-        country="NL",
-        channel=6,
-    )
-
-    return config
+    return config.wifi
 
 
-@router.put("")
-def update_hostapd(config: WifiConfig):
-    """
-    Validate and apply a new hostapd configuration.
-    """
+@router.put(
+    "",
+    response_model=HostapdResponse,
+)
+def update_hostapd(
+    config: WifiConfig,
+) -> HostapdResponse:
+    """Validate, apply and save the Hostapd configuration."""
 
     try:
-
         hostapd.validate_config(config)
-
         hostapd.apply(config)
 
-    except Exception as exc:
+        router_config = config_manager.load()
+        router_config.wifi = config
+        config_manager.save(router_config)
 
+    except Exception as exc:
         raise HTTPException(
             status_code=400,
             detail=str(exc),
         ) from exc
-
 
     return HostapdResponse(
         message="Hostapd configuration applied."

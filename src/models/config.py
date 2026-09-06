@@ -12,18 +12,107 @@ class WifiConfig(BaseModel):
     country: str = "NL"
     channel: int = 6
 
-
 class DhcpConfig(BaseModel):
+    """
+    DHCP server configuration.
+
+    Used by dnsmasq for DHCPv4 and, where enabled, DHCPv6/RA.
+    """
+
     enabled: bool = False
     interface: str = ""
 
+    # IPv4 network
     network: str = "192.168.10.0/24"
     gateway: str = "192.168.10.1"
 
+    # DHCPv4 address pool
     range_start: str = "192.168.10.100"
     range_end: str = "192.168.10.200"
-
     lease_time: str = "12h"
+
+    # DHCP options
+    dns_servers: list[str] = Field(
+        default_factory=lambda: ["192.168.10.1"]
+    )
+
+    domain: str = "home"
+
+    # DHCP server behavior
+    authoritative: bool = True
+
+    # IPv6 DHCP / Router Advertisements
+    ipv6_enabled: bool = False
+    ipv6_ra: bool = False
+
+    # IPv6 address range, if DHCPv6 is enabled
+    ipv6_range_start: str = "::100"
+    ipv6_range_end: str = "::1ff"
+    ipv6_prefix_length: int = 64
+
+    # IPv6 DNS servers advertised to clients
+    ipv6_dns_servers: list[str] = Field(
+        default_factory=list
+    )
+
+class DnsmasqConfig(BaseModel):
+    """
+    dnsmasq service configuration.
+
+    Controls DNS forwarding, local DNS, blocklists and logging.
+    """
+
+    # Interfaces
+    interface: str = ""
+    except_interfaces: list[str] = Field(
+        default_factory=lambda: ["lo"]
+    )
+
+    # DNS
+    enabled: bool = True
+    no_resolv: bool = True
+
+    # Upstream DNS servers.
+    #
+    # Example:
+    #   94.140.14.14@wgo_free
+    #   94.140.15.15@wgo_free
+    #
+    upstream_servers: list[str] = Field(
+        default_factory=list
+    )
+
+    # DNS cache
+    cache_size: int = 10000
+    negative_ttl: int = 3600
+    dns_forward_max: int = 150
+
+    # DNS security
+    stop_dns_rebind: bool = True
+    rebind_localhost_ok: bool = True
+
+    # IPv6
+    ipv6_ads: bool = False
+
+    # Local DNS domain
+    domain: str = "home"
+    expand_hosts: bool = True
+
+    # Blocklists
+    blocklist_files: list[str] = Field(
+        default_factory=list
+    )
+
+    # Logging
+    log_queries: bool = False
+    log_dhcp: bool = False
+    log_destination: str = "/var/log/dnsmasq.log"
+
+    # DHCP configuration
+    dhcp_config: DhcpConfig = Field(
+        default_factory=DhcpConfig
+    )
+
 
 
 class WireGuardConfig(BaseModel):

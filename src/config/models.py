@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 
-from src.services.hostapd.models import HostapdConfig
+from src.models.config import WifiConfig, DnsmasqConfig
 
 
 class RouterConfig(BaseModel):
@@ -8,5 +8,6 @@ class RouterConfig(BaseModel):
 
     version: int = 1
 
-    hostapd: HostapdConfig | None = None
+    hostapd: WifiConfig | None = None
+    dnsmasq: DnsmasqConfig
 
