@@ -1,8 +1,0 @@
-api
-config
-inventory
-models
-services
-tests
-topology
-web
