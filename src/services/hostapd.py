@@ -2,7 +2,6 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from config.hostapd import HostapdConfig
 from models.config import WifiConfig
 from services.base import Service
 

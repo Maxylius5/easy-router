@@ -25,7 +25,7 @@ class DnsmasqResponse(BaseModel):
 def get_dnsmasq_config() -> DnsmasqConfig:
     """ Return the dnsmasq configuration currently used by Easy Router. """ 
 
-    config = config_manager.load()
+    config = config_manager.load_actual()
     
     return config.dnsmasq
 
@@ -40,9 +40,9 @@ def update_hostapd(config: DnsmasqConfig):
         dnsmasq.validate_config(config)
         #dnsmasq.apply(config)
 
-        router_config = config_manager.load()
+        router_config = config_manager.load_desired()
         router_config.dnsmasq = config
-        config_manager.save(router_config)
+        config_manager.save_desired(router_config)
 
     except Exception as exc:
 

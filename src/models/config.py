@@ -1,5 +1,5 @@
 from typing import Any
-
+from enum import Enum
 from pydantic import BaseModel, Field
 
 
@@ -113,23 +113,28 @@ class DnsmasqConfig(BaseModel):
         default_factory=DhcpConfig
     )
 
+class WireguardTable(str, Enum):
+    AUTO = "auto"
+    MAIN = "main"
+    OFF = "off"
 
 
-class WireGuardConfig(BaseModel):
-    enabled: bool = False
+class WgConfig(BaseModel):
+    conf_file: str = " "
+    installed: bool = False
     interface: str = "wg0"
+    table: WireguardTable = WireguardTable.AUTO
+    mtu: int = 1500
 
-    address: str = "10.0.0.1/24"
-    listen_port: int = 51820
+
+
 
 
 class RouterConfig(BaseModel):
     wifi: WifiConfig = Field(default_factory=WifiConfig)
     dnsmasq: DnsmasqConfig=Field(default_factory=DnsmasqConfig)
     #dhcp: DhcpConfig = Field(default_factory=DhcpConfig)
-    wireguard: WireGuardConfig = Field(
-        default_factory=WireGuardConfig
-    )
+    wireguard: WgConfig =Field(default_factory=WgConfig)
 
     def to_dict(self) -> dict[str, Any]:
         return self.model_dump()

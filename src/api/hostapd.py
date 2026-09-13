@@ -27,7 +27,7 @@ class HostapdResponse(BaseModel):
 def get_hostapd_config() -> WifiConfig:
     """Return the current Hostapd configuration."""
 
-    config = config_manager.load()
+    config = config_manager.load_actual()
 
     return config.wifi
 
@@ -45,9 +45,9 @@ def update_hostapd(
         hostapd.validate_config(config)
         hostapd.apply(config)
 
-        router_config = config_manager.load()
+        router_config = config_manager.load_desired()
         router_config.wifi = config
-        config_manager.save(router_config)
+        config_manager.save_desired(router_config)
 
     except Exception as exc:
         raise HTTPException(
