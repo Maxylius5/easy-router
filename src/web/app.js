@@ -72,6 +72,70 @@ async function getHostapdConfig() {
     return response.json();
 }
 
+async function getWireguardConfig() {
+
+    const response =
+        await fetch(
+            "/api/wireguard"
+        );
+
+
+    if (!response.ok) {
+
+        const error =
+            await response.json()
+                .catch(() => null);
+
+
+        throw new Error(
+            error?.detail ??
+            "Failed to load WireGuard configuration."
+        );
+    }
+
+
+    return response.json();
+}
+
+
+async function saveWireguardConfig(
+    config
+) {
+
+    const response =
+        await fetch(
+            "/api/wireguard",
+            {
+                method: "PUT",
+
+                headers: {
+                    "Content-Type":
+                        "application/json"
+                },
+
+                body:
+                    JSON.stringify(config)
+            }
+        );
+
+
+    if (!response.ok) {
+
+        const error =
+            await response.json()
+                .catch(() => null);
+
+
+        throw new Error(
+            error?.detail ??
+            "Failed to apply WireGuard configuration."
+        );
+    }
+
+
+    return response.json();
+}
+
 
 async function saveConfig(config) {
 
@@ -187,12 +251,12 @@ function setupNavigation_debug() {
                             break;
 
                         case "dnsmasq":
-                            console.log(
-                                "CALLING showDnsmasqPage()"
-                            );
-
                             showDnsmasqPage();
                             break;
+                        case "wireguard":
+                            showWireguardPage();
+                            break;
+
 
                     }
 
@@ -2605,6 +2669,484 @@ async function getDnsmasqConfig() {
 
     return response.json();
 }
+
+
+// ==================================================
+// WIREGUARD PAGE
+// ==================================================
+
+// ==================================================
+// WIREGUARD PAGE
+// ==================================================
+
+async function showWireguardPage() {
+
+    setPageHeader(
+        "WireGuard",
+        "Configure the VPN tunnel"
+    );
+
+
+    page.innerHTML = `
+        <section class="card">
+
+            <h2 class="card-title">
+                VPN Configuration
+            </h2>
+
+            <p class="card-description">
+                Upload the .conf file provided by your VPN provider.
+            </p>
+
+
+            <form id="wireguard-form">
+
+                <!-- Configuration file -->
+
+                <div class="form-group">
+
+                    <label for="wireguard-file">
+                        WireGuard configuration
+                    </label>
+
+                    <input
+                        id="wireguard-file"
+                        type="file"
+                        accept=".conf"
+                        required
+                    >
+
+                    <div class="form-help">
+                        Select the WireGuard .conf file provided
+                        by your VPN provider.
+                    </div>
+
+                </div>
+
+
+                <!-- File information -->
+
+                <div
+                    id="wireguard-file-info"
+                    class="form-help"
+                ></div>
+
+
+                <div class="form-grid">
+
+                    <!-- MTU -->
+
+                    <div class="form-group">
+
+                        <label for="wireguard-mtu">
+                            MTU
+                        </label>
+
+                        <input
+                            id="wireguard-mtu"
+                            type="number"
+                            min="576"
+                            max="9000"
+                            value="1500"
+                            required
+                        >
+
+                        <div class="form-help">
+                            Maximum transmission unit used
+                            by the WireGuard interface.
+                        </div>
+
+                    </div>
+
+
+                    <!-- Routing table -->
+
+                    <div class="form-group">
+
+                        <label for="wireguard-table">
+                            Routing table
+                        </label>
+
+                        <select id="wireguard-table">
+
+                            <option value="auto">
+                                Automatic
+                            </option>
+
+                            <option value="main">
+                                Main routing table
+                            </option>
+
+                            <option value="off">
+                                Don't manage routes
+                            </option>
+
+                        </select>
+
+                        <div class="form-help">
+                            Controls how wg-quick manages routes.
+                        </div>
+
+                    </div>
+
+                </div>
+
+
+                <div class="form-actions">
+
+                    <button
+                        type="submit"
+                        class="button"
+                        id="save-wireguard"
+                    >
+                        Apply configuration
+                    </button>
+
+                    <button
+                        type="button"
+                        class="button button-secondary"
+                        id="reload-wireguard"
+                    >
+                        Reload
+                    </button>
+
+                </div>
+
+
+                <div
+                    id="wireguard-message"
+                    class="message"
+                ></div>
+
+            </form>
+
+        </section>
+    `;
+
+
+    try {
+
+        const wireguardConfig =
+            await getWireguardConfig();
+
+
+        currentConfig =
+            wireguardConfig;
+
+
+        populateWireguardForm(
+            wireguardConfig
+        );
+
+
+    } catch (error) {
+
+        showMessage(
+            "wireguard-message",
+            error.message,
+            "error"
+        );
+
+        console.error(error);
+    }
+
+
+    /*
+     * File selection
+     */
+
+    document
+        .getElementById("wireguard-file")
+        .addEventListener(
+            "change",
+            handleWireguardFile
+        );
+
+
+    /*
+     * Form submission
+     */
+
+    document
+        .getElementById("wireguard-form")
+        .addEventListener(
+            "submit",
+            handleWireguardSubmit
+        );
+
+
+    /*
+     * Reload
+     */
+
+    document
+        .getElementById("reload-wireguard")
+        .addEventListener(
+            "click",
+            () => showWireguardPage()
+        );
+}
+
+// ==================================================
+// POPULATE WIREGUARD FORM
+// ==================================================
+
+function populateWireguardForm(
+    wgConfig
+) {
+
+    document.getElementById(
+        "wireguard-mtu"
+    ).value =
+        wgConfig.mtu ?? 1500;
+
+
+    document.getElementById(
+        "wireguard-table"
+    ).value =
+        wgConfig.table ?? "auto";
+
+
+    const fileInfo =
+        document.getElementById(
+            "wireguard-file-info"
+        );
+
+
+    if (wgConfig.installed) {
+    fileInfo.textContent =
+        "A WireGuard configuration is currently installed.";
+    } else {
+    fileInfo.textContent =
+        "No WireGuard configuration is currently installed.";
+}
+}
+
+
+// ==================================================
+// READ WIREGUARD .CONF FILE
+// ==================================================
+
+
+async function handleWireguardFile(event) {
+
+    const file =
+        event.target.files[0];
+
+
+    const fileInfo =
+        document.getElementById(
+            "wireguard-file-info"
+        );
+
+
+    if (!file) {
+
+        fileInfo.textContent = "";
+
+        return;
+    }
+
+
+    if (!file.name.endsWith(".conf")) {
+
+        showMessage(
+            "wireguard-message",
+            "Please select a WireGuard .conf file.",
+            "error"
+        );
+
+        event.target.value = "";
+
+        return;
+    }
+
+
+    try {
+
+        const content =
+            await file.text();
+
+
+        if (!content.trim()) {
+
+            throw new Error(
+                "The selected configuration file is empty."
+            );
+        }
+
+
+        /*
+         * Store the configuration temporarily
+         * so handleWireguardSubmit() can use it.
+         */
+
+        selectedWireguardConfig =
+            content;
+
+
+        fileInfo.textContent =
+            `${file.name} loaded successfully.`;
+
+
+        showMessage(
+            "wireguard-message",
+            "Configuration file loaded. Review the settings and apply it.",
+            "info"
+        );
+
+
+    } catch (error) {
+
+        selectedWireguardConfig =
+            null;
+
+
+        showMessage(
+            "wireguard-message",
+            error.message,
+            "error"
+        );
+
+        console.error(error);
+    }
+}
+// ==================================================
+// SAVE WIREGUARD CONFIGURATION
+// ==================================================
+
+async function handleWireguardSubmit(
+    event
+) {
+
+    event.preventDefault();
+
+
+    const saveButton =
+        document.getElementById(
+            "save-wireguard"
+        );
+
+
+    /*
+     * A configuration file must have been selected.
+     */
+
+    if (!selectedWireguardConfig) {
+
+        showMessage(
+            "wireguard-message",
+            "Please select a WireGuard configuration file.",
+            "error"
+        );
+
+        return;
+    }
+
+
+    const mtu =
+        Number(
+            document.getElementById(
+                "wireguard-mtu"
+            ).value
+        );
+
+
+    const table =
+        document.getElementById(
+            "wireguard-table"
+        ).value;
+
+
+    /*
+     * Browser-side validation.
+     */
+
+    if (
+        !Number.isInteger(mtu) ||
+        mtu < 576 ||
+        mtu > 9000
+    ) {
+
+        showMessage(
+            "wireguard-message",
+            "MTU must be between 576 and 9000.",
+            "error"
+        );
+
+        return;
+    }
+
+
+    const wireguard = {
+
+        conf_file: selectedWireguardConfig,
+        table: table,
+        mtu: mtu
+    };
+
+
+    saveButton.disabled =
+        true;
+
+    saveButton.textContent =
+        "Applying...";
+
+
+    showMessage(
+        "wireguard-message",
+        "Sending WireGuard configuration to the backend...",
+        "info"
+    );
+
+
+    try {
+
+        const result =
+            await saveWireguardConfig(
+                wireguard
+            );
+
+
+        /*
+         * Keep local state synchronized.
+         */
+
+        currentConfig = {
+            ...currentConfig,
+            wireguard: wireguard
+        };
+
+
+        showMessage(
+            "wireguard-message",
+            result.message ??
+                "WireGuard configuration applied successfully.",
+            "success"
+        );
+
+
+    } catch (error) {
+
+        showMessage(
+            "wireguard-message",
+            error.message,
+            "error"
+        );
+
+        console.error(error);
+
+    } finally {
+
+        saveButton.disabled =
+            false;
+
+        saveButton.textContent =
+            "Apply configuration";
+    }
+}
+
+
 
 
 // ==================================================
