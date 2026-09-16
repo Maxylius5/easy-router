@@ -11,7 +11,7 @@ class HostapdError(Exception):
 
 
 class HostapdService(Service[WifiConfig]):
-    CONFIG_PATH = Path("/etc/hostapd/easy-router.conf")
+    CONFIG_PATH = Path("/etc/easy-router/hostapd/hostapd.conf")
     """Manage hostapd configuration."""
 
     def generate_config(self, config: WifiConfig) -> str:

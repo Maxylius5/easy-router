@@ -11,7 +11,7 @@ class WireguardError(Exception):
 
 
 class WireguardService(Service[WgConfig]):
-    CONFIG_PATH = Path("/etc/wireguard/easy-router.conf")
+    CONFIG_PATH = Path("/etc/easy-router/wireguard/wg0.conf")
     """Manage hostapd configuration."""
 
     def generate_config(self, config: WgConfig) -> str:

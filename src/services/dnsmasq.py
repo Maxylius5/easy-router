@@ -12,7 +12,7 @@ class DnsmasqError(Exception):
 
 
 class DnsmasqService(Service[DnsmasqConfig]):
-    CONFIG_PATH = Path("/etc/dnsmasq.d/easy-router.conf")
+    CONFIG_PATH = Path("/etc/easy-router/dnsmasq/dnsmasq.conf")
     """Manage dnsmasq configuration."""
 
     def generate_config(self, config: DnsmasqConfig) -> str:

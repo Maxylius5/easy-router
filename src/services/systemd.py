@@ -1,29 +1,40 @@
 import subprocess
 
-class SystemdService:
-    def restart(self, service_name: str) -> None:
+
+
+class SystemdManager:
+    def daemon_reload(self) -> None:
         subprocess.run(
-            ["systemctl", "restart", service_name],
+            ["systemctl", "daemon-reload"],
             check=True,
         )
 
-    def stop(self, service_name: str) -> None:
+    def enable(self, unit: str) -> None:
         subprocess.run(
-            ["systemctl", "stop", service_name],
+            ["systemctl", "enable", unit],
             check=True,
         )
 
-    def start(self, service_name: str) -> None:
+    def start(self, unit: str) -> None:
         subprocess.run(
-            ["systemctl", "start", service_name],
+            ["systemctl", "start", unit],
             check=True,
         )
 
-    def is_active(self, service_name: str) -> bool:
+    def stop(self, unit: str) -> None:
+        subprocess.run(
+            ["systemctl", "stop", unit],
+            check=True,
+        )
+
+    def restart(self, unit: str) -> None:
+        subprocess.run(
+            ["systemctl", "restart", unit],
+            check=True,
+        )
+
+    def is_active(self, unit: str) -> bool:
         result = subprocess.run(
-            ["systemctl", "is-active", service_name],
-            capture_output=True,
-            text=True,
+            ["systemctl", "is-active", "--quiet", unit],
         )
-
         return result.returncode == 0
