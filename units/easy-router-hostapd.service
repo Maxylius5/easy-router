@@ -1,0 +1,13 @@
+[Unit]
+Description=Easy Router hostapd
+After=network-pre.target
+Wants=network-pre.target
+
+[Service]
+Type=simple
+ExecStart=/usr/sbin/hostapd /etc/easy-router/hostapd/hostapd.conf
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=easy-router.target

@@ -1,0 +1,13 @@
+[Unit]
+Description=Easy Router WireGuard
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/wg-quick up /etc/easy-router/wireguard/wg0.conf
+ExecStop=/usr/bin/wg-quick down /etc/easy-router/wireguard/wg0.conf
+
+[Install]
+WantedBy=easy-router.target

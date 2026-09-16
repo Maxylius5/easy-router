@@ -1,0 +1,12 @@
+[Unit]
+Description=Easy Router
+Wants=easy-router-wireguard.service
+Wants=easy-router-hostapd.service
+Wants=easy-router-dnsmasq.service
+
+After=easy-router-wireguard.service
+After=easy-router-hostapd.service
+After=easy-router-dnsmasq.service
+
+[Install]
+WantedBy=multi-user.target
