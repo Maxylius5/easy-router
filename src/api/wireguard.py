@@ -6,14 +6,20 @@ from src.models.config import WgConfig
 from src.services.wireguard import WireguardService
 
 
+TAG="wireguard"
+
+
 router = APIRouter(
-    prefix="/api/wireguard",
-    tags=["wireguard"],
+    prefix=f"/api/{TAG}",
+    tags=[TAG],
 )
 
 
 config_manager = ConfigManager()
 wireguard = WireguardService()
+
+
+
 
 class WireguardError(Exception):
     pass
@@ -29,7 +35,7 @@ class WireguardResponse(BaseModel):
 def get_hostapd_config() -> WgConfig:
     """Return the current Wireguard configuration."""
 
-    config = config_manager.load_actual()
+    config = config_manager.load_actual(TAG, WgConfig)
 
     return WgConfig(
         installed=config.wireguard.installed,
@@ -50,11 +56,8 @@ def update_hostapd(
 
     try:
         wireguard.validate_config(config)
-        wireguard.apply(config)
 
-        router_config = config_manager.load_desired()
-        router_config.wireguard = config
-        config_manager.save_desired(router_config)
+        config_manager.save_desired(TAG, config)
 
     except Exception as exc:
         raise HTTPException(

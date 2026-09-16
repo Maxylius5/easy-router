@@ -1,67 +1,68 @@
 import json
 import os
 from pathlib import Path
-
-from src.models.config import RouterConfig
+from typing import Any
 
 
 class ConfigManager:
     def __init__(self):
-        self.desired_path, self.actual_path = self._default_path()
+        self.config_dir = self._default_path()
+        self.desired_dir = self.config_dir / "desired"
+        self.actual_dir = self.config_dir / "actual"
 
     @staticmethod
-    def _default_path() -> tuple[Path, Path]:
+    def _default_path() -> Path:
         xdg_config_home = os.environ.get("XDG_CONFIG_HOME")
 
         if xdg_config_home:
-            config_dir = Path(xdg_config_home)
-        else:
-            config_dir = Path.home() / ".config"
-        
-        desired_state = config_dir / "easy-router" / "desired_config.json"
-        actual_state = config_dir / "easy-router" / "actual_config.json"
-        return desired_state, actual_state
+            return Path(xdg_config_home) / "easy-router"
 
-    def load_desired(self) -> RouterConfig:
-        if not self.desired_path.exists():
-            return RouterConfig()
+        return Path.home() / ".config" / "easy-router"
 
-        with self.desired_path.open("r", encoding="utf-8") as file:
-            data = json.load(file)
+    def save_desired(self, service: str, config: Any) -> None:
+        self._save(
+            self.desired_dir / f"{service}.json",
+            config,
+        )
 
-        return RouterConfig.from_dict(data)
+    def save_actual(self, service: str, config: Any) -> None:
+        self._save(
+            self.actual_dir / f"{service}.json",
+            config,
+        )
 
-    def save_desired(self, config: RouterConfig) -> None:
-        self.desired_path.parent.mkdir(
+    def load_desired(self, service: str, model: type) -> Any:
+        return self._load(
+            self.desired_dir / f"{service}.json",
+            model,
+        )
+
+    def load_actual(self, service: str, model: type) -> Any:
+        return self._load(
+            self.actual_dir / f"{service}.json",
+            model,
+        )
+
+    @staticmethod
+    def _save(path: Path, config: Any) -> None:
+        path.parent.mkdir(
             parents=True,
             exist_ok=True,
         )
 
-        with self.desired_path.open("w", encoding="utf-8") as file:
+        with path.open("w", encoding="utf-8") as file:
             json.dump(
                 config.to_dict(),
                 file,
                 indent=4,
             )
 
-    def load_actual(self) -> RouterConfig:
-        if not self.actual_path.exists():
-            return RouterConfig()
+    @staticmethod
+    def _load(path: Path, model: type) -> Any:
+        if not path.exists():
+            return model()
 
-        with self.actual_path.open("r", encoding="utf-8") as file:
+        with path.open("r", encoding="utf-8") as file:
             data = json.load(file)
 
-        return RouterConfig.from_dict(data)
-
-    def save_actual(self, config: RouterConfig) -> None:
-        self.actual_path.parent.mkdir(
-            parents=True,
-            exist_ok=True,
-        )
-
-        with self.actual_path.open("w", encoding="utf-8") as file:
-            json.dump(
-                config.to_dict(),
-                file,
-                indent=4,
-            )
+        return model.from_dict(data)

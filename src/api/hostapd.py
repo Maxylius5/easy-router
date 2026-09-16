@@ -6,14 +6,17 @@ from src.models.config import WifiConfig
 from src.services.hostapd import HostapdService
 
 
+TAG="hostapd"
+
 router = APIRouter(
-    prefix="/api/hostapd",
-    tags=["hostapd"],
+    prefix=f"/api/{TAG}",
+    tags=[TAG],
 )
 
 
 config_manager = ConfigManager()
 hostapd = HostapdService()
+
 
 
 class HostapdResponse(BaseModel):
@@ -27,7 +30,7 @@ class HostapdResponse(BaseModel):
 def get_hostapd_config() -> WifiConfig:
     """Return the current Hostapd configuration."""
 
-    config = config_manager.load_actual()
+    config = config_manager.load_actual(TAG, WifiConfig)
 
     return config.wifi
 
@@ -43,11 +46,8 @@ def update_hostapd(
 
     try:
         hostapd.validate_config(config)
-        hostapd.apply(config)
 
-        router_config = config_manager.load_desired()
-        router_config.wifi = config
-        config_manager.save_desired(router_config)
+        config_manager.save_desired(TAG, config=config)
 
     except Exception as exc:
         raise HTTPException(
