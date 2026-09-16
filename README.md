@@ -1,747 +1,435 @@
 # Easy Router
 
-Easy Router is a Linux router management application designed to provide a simple web-based control panel for configuring and managing network services.
+Easy Router is a Linux router management system designed to provide a simple, centralized way to configure and operate common router services.
 
-The browser is intentionally treated as a **control panel**, not as the owner of any router services. Long-running services such as `hostapd`, `dnsmasq`, and eventually WireGuard are managed by Linux/systemd and continue running independently of the web interface.
+The long-term goal is to provide a WebUI and API through which users can configure services such as:
 
-The long-term goal is to make configuring a Linux router feel less like manually editing configuration files and more like managing a single, coherent router system.
-
-## Project Status
-
-Easy Router is currently in the **early development / architectural phase**.
-
-The current implementation includes:
-
-* FastAPI backend
-* Pydantic-based configuration models
-* Web-based configuration interface
-* Network interface discovery
-* Hostapd configuration management
-* Dnsmasq configuration management
-* Persistent router configuration through `config.json`
-* Native configuration generation for system services
-
-The next major stage is moving from configuration management toward **reliable system reconciliation**: making the actual Linux system converge toward the desired state stored by Easy Router.
-
-Some of the service-management and recovery functionality described below is therefore part of the planned architecture rather than fully implemented functionality.
-
----
-
-## Goals
-
-Easy Router is being designed around a few core principles.
-
-### 1. The browser is only a control panel
-
-The web application should never own the lifetime of router services.
-
-Closing the browser must not stop:
-
-* `hostapd`
-* `dnsmasq`
+* dnsmasq
+* hostapd
 * WireGuard
-* DHCP/DNS services
-* or any other router service
+* nftables
+* and other router-related services
 
-The browser communicates with the FastAPI backend, while Linux/systemd owns the actual services.
+Easy Router manages the configuration state of these services while allowing each service to retain responsibility for its own configuration format and system-level behavior.
 
-### 2. Configuration is represented as structured data
-
-Instead of making the web application manipulate daemon configuration files directly, Easy Router uses Pydantic models to represent the desired router configuration.
-
-For example:
-
-```text
-Browser
-   ↓
-Pydantic model
-   ↓
-config.json
-   ↓
-service renderer
-   ↓
-native daemon configuration
-```
-
-This provides a stable application-level representation of the router configuration while still allowing Easy Router to generate the native configuration formats required by Linux services.
-
-### 3. Easy Router should be able to recover
-
-The system is intended to be resilient to:
-
-* service crashes
-* machine reboots
-* configuration changes
-* accidental manual configuration changes
-* failed configuration applications
-* invalid generated configuration
-
-The goal is that the system can determine what the router **should** look like and bring the machine back into that state.
-
-### 4. Services remain independent of the web application
-
-Easy Router should not launch long-running daemons with Python processes such as:
-
-```python
-subprocess.Popen(["dnsmasq", ...])
-```
-
-Instead, systemd should manage those processes.
-
-Easy Router acts as a management layer over them.
+> **Status:** Easy Router is currently under active development. The configuration and service-management architecture is being built before the WebUI is finalized.
 
 ---
 
-# Architecture
+## Architecture
 
-The project is moving toward a desired-state architecture.
+Easy Router is built around three main responsibilities:
 
 ```text
-                         Browser
-                            │
-                            │ HTTP
-                            ▼
-                    ┌─────────────────┐
-                    │     FastAPI     │
-                    │   Control API   │
-                    └────────┬────────┘
-                             │
-                             ▼
-                    ┌─────────────────┐
-                    │ ConfigManager   │
-                    │                 │
-                    │  config.json   │
-                    └────────┬────────┘
-                             │
-                       Desired State
-                             │
-                             ▼
-                    ┌─────────────────┐
-                    │   Reconciler    │
-                    └────────┬────────┘
-                             │
-              ┌──────────────┼──────────────┐
-              ▼              ▼              ▼
-        DnsmasqService  HostapdService  WireGuardService
-              │              │              │
-              ▼              ▼              ▼
-       dnsmasq.conf     hostapd.conf    WireGuard config
-              │              │              │
-              └──────────────┼──────────────┘
-                             ▼
-                          systemd
-                             │
-                             ▼
-                        Linux system
+                 WebUI / API
+                     │
+                     ▼
+              Service classes
+                     │
+          validate / generate config
+                     │
+                     ▼
+              ConfigManager
+             /              \
+            ▼                ▼
+       desired/           actual/
+            │                ▲
+            │                │
+            └──────┐   ┌─────┘
+                   ▼   │
+               RouterManager
+                   │
+                   ▼
+             Service.apply()
+                   │
+                   ▼
+             Linux services
 ```
 
-The important distinction is between **desired state** and **actual state**.
+### Services
 
-## Desired State
-
-The desired state is represented by Easy Router's configuration models and persisted to `config.json`.
+Each supported service has its own service class.
 
 For example:
-
-```json
-{
-    "version": 1,
-    "hostapd": {
-        "interface": "wlp4s0",
-        "ssid": "EasyRouter",
-        "country": "NL",
-        "channel": 6
-    },
-    "dnsmasq": {
-        "interface": "br0",
-        "cache_size": 10000
-    }
-}
-```
-
-This represents what the router is intended to be.
-
-## Actual State
-
-The actual state is the state of the Linux machine:
-
-* generated daemon configuration files
-* running systemd services
-* network interfaces
-* bridges
-* addresses
-* routes
-* eventually WireGuard interfaces and peers
-* eventually firewall/NAT state
-
-Easy Router should be able to inspect this state.
-
-## Reconciliation
-
-The long-term mechanism for keeping these states synchronized is reconciliation.
-
-Conceptually:
-
-```text
-                 Desired State
-                  config.json
-                       │
-                       ▼
-                ┌─────────────┐
-                │ Reconciler  │
-                └──────┬──────┘
-                       │
-                  compare state
-                       │
-             ┌─────────┴─────────┐
-             │                   │
-          matches            differs
-             │                   │
-             ▼                   ▼
-         do nothing          apply change
-```
-
-This makes the system **idempotent**.
-
-Running reconciliation when the machine is already correct should result in no unnecessary changes.
-
----
-
-# Configuration Management
-
-Easy Router separates application configuration from daemon configuration.
-
-For example:
-
-```text
-DnsmasqConfig
-      │
-      ▼
-DnsmasqService.generate_config()
-      │
-      ▼
-dnsmasq configuration
-```
-
-The `DnsmasqService` is responsible for translating the structured Pydantic model into valid dnsmasq configuration syntax.
-
-The same pattern is intended for other services:
-
-```text
-HostapdConfig
-      ↓
-HostapdService
-      ↓
-hostapd configuration
-```
-
-```text
-WireGuardConfig
-      ↓
-WireGuardService
-      ↓
-WireGuard configuration
-```
-
-This keeps daemon-specific syntax out of the API and frontend.
-
----
-
-# Service Management
-
-Long-running services are intended to be managed by systemd.
-
-Easy Router should communicate with systemd through a small service-management abstraction rather than scattering `systemctl` calls throughout the application.
-
-Conceptually:
-
-```python
-class SystemdService:
-    def start(...):
-        ...
-
-    def stop(...):
-        ...
-
-    def restart(...):
-        ...
-
-    def is_active(...):
-        ...
-```
-
-A service such as dnsmasq can then use this abstraction:
 
 ```text
 DnsmasqService
- ├── generate_config()
- ├── validate_config()
- ├── write_config()
- ├── apply()
- └── reconcile()
+HostapdService
+WireguardService
+NftablesService
 ```
 
-The web API does not need to know how dnsmasq works internally.
+A service is responsible for understanding its own configuration and native configuration format.
+
+A service can provide operations such as:
+
+```python
+validate_config()
+generate_config()
+test_config()
+write_config()
+apply()
+```
+
+For example, `HostapdService.generate_config()` converts a `WifiConfig` model into native `hostapd` configuration text.
+
+The service therefore knows **how to configure hostapd**, but it does not need to know how Easy Router stores its desired and actual state.
 
 ---
 
-# Safe Configuration Application
+## Configuration State
 
-Applying a new configuration should eventually be treated as a transactional operation.
-
-The intended flow is:
+Easy Router maintains two configuration states:
 
 ```text
-New configuration
-       │
-       ▼
-Pydantic validation
-       │
-       ▼
-Generate native configuration
-       │
-       ▼
-Validate generated configuration
-       │
-       ▼
-Save previous configuration
-       │
-       ▼
-Install new configuration
-       │
-       ▼
-Restart service
-       │
-       ▼
-Verify service
-       │
-   ┌───┴───┐
-   │       │
-Success   Failure
-   │       │
-   ▼       ▼
- Commit   Rollback
-           │
-           ▼
-        Restart
-```
-
-A failed configuration should not leave the router in a broken state if the previous known-good configuration can be restored.
-
-This is particularly important for services such as DNS, DHCP, and Wi-Fi, where a bad configuration can make the router difficult to access remotely.
-
----
-
-# Configuration Drift
-
-One of the reasons for having a desired-state model is to detect configuration drift.
-
-For example, if Easy Router expects:
-
-```text
-cache-size=10000
-```
-
-but the actual configuration has:
-
-```text
-cache-size=5000
-```
-
-the system can detect that the machine no longer matches the desired state.
-
-Likewise, if someone manually stops dnsmasq:
-
-```text
-Desired:
-    dnsmasq = running
-
-Actual:
-    dnsmasq = stopped
-```
-
-the reconciler can detect the difference and restore the service.
-
-This allows Easy Router to move beyond being a configuration editor and become a **router state manager**.
-
----
-
-# Automatic Recovery
-
-The intended system should be able to recover from several classes of failure.
-
-### Service crash
-
-```text
-dnsmasq crashes
-      ↓
-systemd restarts dnsmasq
-```
-
-Systemd should handle normal process supervision.
-
-### Configuration drift
-
-```text
-actual configuration
-        ≠
-desired configuration
-        ↓
-Easy Router reconciliation
-        ↓
-restore desired configuration
-```
-
-### Machine reboot
-
-```text
-Machine boots
-      ↓
-systemd starts required services
-      ↓
-Easy Router starts
-      ↓
-Easy Router loads config.json
-      ↓
-reconciliation
-      ↓
-system reaches desired state
-```
-
-The exact boot ordering and dependencies will be defined as the systemd integration matures.
-
----
-
-# Current Project Structure
-
-The project is currently organized roughly as follows:
-
-```text
-src/
-├── api/
-│   ├── config.py
-│   ├── hostapd.py
-│   ├── dnsmasq.py
-│   └── interfaces.py
+~/.config/easy-router/
+├── desired/
+│   ├── dnsmasq.json
+│   ├── hostapd.json
+│   ├── wireguard.json
+│   └── nftables.json
 │
-├── services/
-│   ├── hostapd.py
-│   ├── dnsmasq.py
-│   └── systemd.py
-│
-├── config/
-│   ├── manager.py
-│   ├── hostapd.py
-│   └── dnsmasq.py
-│
-├── models/
-│   └── config.py
-│
-└── web/
-    ├── index.html
-    ├── app.js
-    └── style.css
+└── actual/
+    ├── dnsmasq.json
+    ├── hostapd.json
+    ├── wireguard.json
+    └── nftables.json
 ```
 
-The exact structure may evolve as the reconciliation and service-management layers become more developed.
+### Desired state
 
----
+`desired/` contains what the user wants Easy Router to configure.
 
-# Current Components
-
-## FastAPI
-
-FastAPI provides the HTTP API used by the web interface.
-
-Current API areas include:
+For example:
 
 ```text
-/api/interfaces
-/api/config
-/api/hostapd
-/api/dnsmasq
+~/.config/easy-router/desired/hostapd.json
 ```
 
-These APIs are expected to become service-oriented rather than exposing the implementation details of individual daemon configuration files.
+is the desired hostapd configuration.
 
----
+The API writes to this state after validating the user's requested configuration.
 
-## Pydantic Configuration Models
+### Actual state
 
-Pydantic models define the application's representation of router configuration.
+`actual/` contains the configuration that Easy Router has **successfully applied**.
 
-Examples include:
+It is not simply another copy of the desired configuration.
 
-* `RouterConfig`
-* `HostapdConfig`
-* `DnsmasqConfig`
+For example, if a new hostapd configuration fails validation or cannot be applied:
 
-These models provide validation before configuration reaches the underlying Linux services.
+```text
+desired/hostapd.json
+        │
+        │ new configuration
+        ▼
+     FAILED
+```
+
+the existing:
+
+```text
+actual/hostapd.json
+```
+
+remains unchanged.
+
+This makes the difference between desired and actual state useful for determining whether reconciliation is required.
 
 ---
 
 ## ConfigManager
 
-`ConfigManager` is responsible for persistence of the desired router configuration.
+`ConfigManager` is responsible only for configuration persistence.
 
-Its role is intentionally different from the service layer.
+It does not know how dnsmasq, hostapd, WireGuard, or nftables work.
 
-```text
-ConfigManager
-    │
-    └── manages desired state
+Its job is to read and write service configuration state:
 
-DnsmasqService
-    │
-    └── manages dnsmasq
+```python
+config_manager.save_desired("hostapd", config)
 
-HostapdService
-    │
-    └── manages hostapd
+config_manager.load_desired("hostapd", HostapdConfig)
+
+config_manager.save_actual("hostapd", config)
+
+config_manager.load_actual("hostapd", HostapdConfig)
 ```
 
-The configuration file is not intended to be a replacement for the daemon's native configuration files.
-
-It is Easy Router's source of truth.
+This keeps configuration storage independent from individual services.
 
 ---
 
-## DnsmasqService
+## Native Configuration
 
-The dnsmasq service currently contains a configuration renderer that converts `DnsmasqConfig` into native dnsmasq syntax.
+Easy Router does not use the JSON files as native daemon configuration.
 
-It currently handles configuration areas such as:
-
-* network interfaces
-* DNS upstream servers
-* DNS caching
-* DNS rebinding protection
-* local DNS domains
-* blocklists
-* query logging
-* DHCP
-* DHCPv6
-* IPv6 router advertisements
-
-The next stage is to add reliable application, verification, rollback, and reconciliation.
-
----
-
-## HostapdService
-
-Hostapd is intended to provide wireless access-point functionality.
-
-The service layer will be responsible for:
-
-* generating hostapd configuration
-* validating configuration
-* applying configuration
-* managing the systemd service
-* detecting configuration drift
-* recovering from service failures
-
----
-
-# Roadmap
-
-The project is intentionally being developed incrementally.
-
-## Phase 1 — Configuration and API
-
-* [x] FastAPI application
-* [x] Web control panel
-* [x] Network interface discovery
-* [x] Pydantic configuration models
-* [x] Persistent configuration
-* [x] Hostapd API
-* [x] Dnsmasq API
-* [x] Dnsmasq configuration generation
-* [ ] Complete hostapd configuration generation
-
-## Phase 2 — Real Service Management
-
-* [ ] Write generated dnsmasq configuration to the system
-* [ ] Validate generated dnsmasq configuration
-* [ ] Write generated hostapd configuration
-* [ ] Validate generated hostapd configuration
-* [ ] Introduce systemd service abstraction
-* [ ] Start/stop/restart services through systemd
-* [ ] Verify service state after applying configuration
-
-## Phase 3 — Reconciliation
-
-* [ ] Implement service state inspection
-* [ ] Compare desired and actual configuration
-* [ ] Implement `reconcile()`
-* [ ] Detect configuration drift
-* [ ] Automatically restore desired configuration
-* [ ] Periodic reconciliation
-* [ ] Service health/status API
-
-## Phase 4 — Failure Resistance
-
-* [ ] Atomic configuration writes
-* [ ] Configuration backups
-* [ ] Transactional configuration application
-* [ ] Automatic rollback
-* [ ] Verify service health after changes
-* [ ] Handle failed service restarts
-* [ ] Make Easy Router itself a systemd service
-* [ ] Define correct boot ordering
-
-## Phase 5 — Router Functionality
-
-Planned router functionality includes:
-
-* [ ] DHCP
-* [ ] DNS
-* [ ] Wi-Fi access point management
-* [ ] Network bridge management
-* [ ] IPv4 routing
-* [ ] IPv6 routing
-* [ ] NAT
-* [ ] Firewall configuration
-* [ ] WireGuard
-* [ ] VPN routing
-* [ ] DNS blocklists
-* [ ] Client/device information
-* [ ] Network/service status
-
-## Phase 6 — Production Hardening
-
-* [ ] Run the FastAPI application as a dedicated system user
-* [ ] Remove the need to run the application as root
-* [ ] Restrict privileged operations
-* [ ] Use narrowly scoped privilege escalation where required
-* [ ] Improve authentication and authorization
-* [ ] Secure the web interface
-* [ ] Add structured logging
-* [ ] Add comprehensive service tests
-* [ ] Add integration tests against real Linux services
-
----
-
-# Design Principles
-
-### Desired state over imperative commands
-
-The preferred model is:
-
-```text
-"Make the router look like this."
-```
-
-rather than:
-
-```text
-"Run these commands."
-```
-
-This makes recovery and automation significantly easier.
-
-### Idempotency
-
-Applying the same desired configuration multiple times should be safe.
-
-```text
-apply(config)
-apply(config)
-apply(config)
-```
-
-should leave the system in the same state as a single successful application.
-
-### Native Linux services
-
-Easy Router should work with the Linux networking stack rather than replacing it with a collection of custom daemons.
-
-Services such as systemd, hostapd, dnsmasq, WireGuard, and the Linux networking stack remain responsible for the low-level work.
-
-### Separation of concerns
-
-The project separates:
-
-```text
-Frontend
-    ↓
-API
-    ↓
-Configuration models
-    ↓
-Reconciliation
-    ↓
-Service implementations
-    ↓
-systemd / Linux
-```
-
-Each layer should have a clearly defined responsibility.
-
-### Recoverability
-
-A configuration change should be considered successful only when the resulting system is known to be healthy.
-
----
-
-# Development
-
-During development, the application can be run with Uvicorn.
+Instead, the service converts its internal configuration model into the configuration format required by the underlying Linux service.
 
 For example:
 
-```bash
-uv run uvicorn main:app --reload
+```text
+desired/hostapd.json
+        │
+        ▼
+   WifiConfig
+        │
+        ▼
+HostapdService.generate_config()
+        │
+        ▼
+hostapd configuration
+        │
+        ▼
+/etc/easy-router/hostapd/
 ```
 
-The development server should not be confused with the eventual production deployment.
+The same pattern can be used for every supported service.
 
-In the production router, Easy Router itself is intended to run as a systemd-managed service, without the development `--reload` option.
+The JSON configuration is Easy Router's representation of configuration state, while the generated configuration is the representation required by the underlying daemon.
 
 ---
 
-# Long-Term Vision
+## Reconciliation
 
-Easy Router is intended to become more than a web interface for editing `hostapd.conf` and `dnsmasq.conf`.
+The long-term architecture is based around reconciliation.
 
-The long-term vision is a **desired-state Linux router manager**.
+`RouterManager` acts as the coordinator between configuration state and the actual services.
 
-A user should be able to configure the router through the web interface:
-
-```text
-Wi-Fi
-DNS
-DHCP
-IPv4
-IPv6
-Firewall
-NAT
-VPN
-WireGuard
-```
-
-without needing to manually edit multiple daemon configuration files.
-
-Easy Router then translates that high-level configuration into the appropriate native Linux configuration and continuously ensures that the machine matches the desired state.
-
-The fundamental model is:
+Conceptually:
 
 ```text
-                    ┌──────────────────┐
-                    │   Desired State  │
-                    │                  │
-                    │    config.json   │
-                    └────────┬─────────┘
-                             │
-                             ▼
-                       Reconciliation
-                             │
-                             ▼
-                    ┌──────────────────┐
-                    │   Actual Linux   │
-                    │      State       │
-                    └──────────────────┘
+                  desired
+                     │
+                     ▼
+              compare with actual
+                     │
+              ┌──────┴──────┐
+              │             │
+            equal        different
+              │             │
+              ▼             ▼
+             done       validate
+                            │
+                            ▼
+                         test
+                            │
+                            ▼
+                     generate/write
+                            │
+                            ▼
+                          apply
+                            │
+                     successful?
+                       /       \
+                     no         yes
+                     │           │
+                     ▼           ▼
+               keep actual   save actual
 ```
 
-If the two states differ, Easy Router brings the actual system back toward the desired state.
+This means Easy Router does not blindly apply every configuration request.
 
-That architecture is intended to make the router **persistent, recoverable, observable, and manageable without tying its operation to the browser or any single user session**.
+Instead, it determines whether the desired state differs from the last successfully applied state and only performs the necessary work.
+
+---
+
+## Safe Configuration Changes
+
+Configuration changes should be applied in a controlled sequence:
+
+1. Load the desired configuration.
+2. Compare it with the actual configuration.
+3. Validate the desired configuration.
+4. Generate the native service configuration.
+5. Test the generated configuration where possible.
+6. Write the native configuration.
+7. Apply or reload the service.
+8. Verify that the service successfully started or reloaded.
+9. Only then update the actual state.
+
+If a step fails, the actual state should not be updated to the failed desired state.
+
+This provides a clear distinction between:
+
+```text
+What the user requested
+```
+
+and:
+
+```text
+What Easy Router successfully applied
+```
+
+---
+
+## System Integration
+
+Easy Router interacts with Linux services through dedicated service classes and shared system-management components.
+
+A low-level `SystemdManager` provides operations such as:
+
+```python
+start()
+stop()
+restart()
+```
+
+Service-specific classes can use these operations when applying their own configuration.
+
+The higher-level `RouterManager` should not need to know the details of individual systemd units. It asks the appropriate service to apply its configuration.
+
+This keeps service-specific knowledge inside the service implementation.
+
+---
+
+## API
+
+The API provides access to individual service configurations.
+
+For example:
+
+```text
+GET /api/dnsmasq
+PUT /api/dnsmasq
+
+GET /api/hostapd
+PUT /api/hostapd
+```
+
+A `PUT` request represents a request to change the desired configuration.
+
+The API validates the configuration and stores it as desired state.
+
+The actual application of the configuration is handled by the reconciliation layer rather than directly by the API endpoint.
+
+This separation allows configuration changes to eventually be applied asynchronously and consistently.
+
+---
+
+## WebUI
+
+The WebUI is intended to provide a simple interface for managing the router.
+
+The frontend is deliberately kept separate from the service and configuration architecture.
+
+The long-term goal is for the WebUI to interact with the API without needing to know how individual Linux services are configured internally.
+
+For example:
+
+```text
+WebUI
+  │
+  ▼
+API
+  │
+  ▼
+DnsmasqConfig
+  │
+  ▼
+DnsmasqService
+  │
+  ▼
+Linux dnsmasq
+```
+
+---
+
+## Long-Term Goals
+
+The project is intended to evolve toward a complete router management platform with:
+
+* Centralized configuration management
+* Desired/actual state reconciliation
+* Safe configuration validation
+* Native configuration generation
+* Service-specific configuration testing
+* Controlled service reloads and restarts
+* Configuration drift detection
+* Service health verification
+* Atomic or rollback-safe configuration updates
+* Support for multiple router services
+* REST API
+* WebUI
+* Clear reporting of configuration and service status
+
+Eventually, Easy Router should be able to answer questions such as:
+
+```text
+Is the router configured as requested?
+Is the running service healthy?
+Is there configuration drift?
+What configuration failed to apply?
+What is currently desired?
+What was last successfully applied?
+```
+
+---
+
+## Project Structure
+
+The project is organized around separating configuration persistence, service-specific logic, and orchestration:
+
+```text
+src/
+├── api/
+│   └── ...
+│
+├── config/
+│   └── manager.py
+│
+├── models/
+│   └── ...
+│
+├── services/
+│   ├── base.py
+│   ├── dnsmasq.py
+│   ├── hostapd.py
+│   ├── wireguard.py
+│   └── ...
+│
+└── ...
+```
+
+The exact structure will evolve as the project grows, but the separation of responsibilities is intended to remain:
+
+```text
+ConfigManager
+    → configuration persistence
+
+Service classes
+    → service-specific configuration and operations
+
+RouterManager
+    → orchestration and reconciliation
+
+SystemdManager
+    → low-level systemd interaction
+
+API
+    → external configuration interface
+
+WebUI
+    → user interface
+```
+
+---
+
+## Development Status
+
+Easy Router is currently a work in progress.
+
+The current development focus is on establishing the backend architecture:
+
+1. Configuration models
+2. Service classes
+3. Configuration persistence
+4. Desired/actual state handling
+5. Service configuration generation and testing
+6. Reconciliation through `RouterManager`
+7. Safe service application
+8. API
+9. WebUI
+
+The goal is to establish a reliable configuration and reconciliation system first, then build the user interface on top of it.
